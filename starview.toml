@@ -1,0 +1,82 @@
+# StarView Configuration
+
+[general]
+gaps_inner = 5
+gaps_outer = 10
+border_width = 2
+border_color_active = "#89b4fa"
+border_color_inactive = "#45475a"
+focus_follows_mouse = true
+default_mode = "tiling"  # "tiling" or "floating"
+
+[animation]
+enabled = true
+speed = 200
+
+[tiling]
+master_ratio = 0.55
+master_count = 1
+
+[keybinds]
+# Apps
+"Alt+Return" = "spawn kitty"
+"Alt+d" = "spawn wofi --show drun"
+"Alt+b" = "spawn firefox"
+
+# Window management
+"Alt+q" = "close"
+"Alt+f" = "fullscreen"
+"Alt+Space" = "toggle_floating"
+
+# Focus (vim keys)
+"Alt+h" = "focus left"
+"Alt+j" = "focus down"
+"Alt+k" = "focus up"
+"Alt+l" = "focus right"
+"Alt+Tab" = "focus_next"
+"Alt+Shift+Tab" = "focus_prev"
+
+# Move windows (vim keys)
+"Alt+Shift+h" = "move left"
+"Alt+Shift+j" = "move down"
+"Alt+Shift+k" = "move up"
+"Alt+Shift+l" = "move right"
+
+# Workspaces
+"Alt+1" = "workspace 1"
+"Alt+2" = "workspace 2"
+"Alt+3" = "workspace 3"
+"Alt+4" = "workspace 4"
+"Alt+5" = "workspace 5"
+"Alt+6" = "workspace 6"
+"Alt+7" = "workspace 7"
+"Alt+8" = "workspace 8"
+"Alt+9" = "workspace 9"
+
+# Move to workspace
+"Alt+Shift+1" = "move_to_workspace 1"
+"Alt+Shift+2" = "move_to_workspace 2"
+"Alt+Shift+3" = "move_to_workspace 3"
+"Alt+Shift+4" = "move_to_workspace 4"
+"Alt+Shift+5" = "move_to_workspace 5"
+
+# Mode switching
+"Alt+t" = "mode_tiling"
+"Alt+w" = "mode_floating"
+"Alt+grave" = "toggle_mode"
+
+# Master-stack layout adjustments
+"Alt+i" = "inc_master_count"
+"Alt+o" = "dec_master_count"
+"Alt+bracketleft" = "dec_master_ratio"
+"Alt+bracketright" = "inc_master_ratio"
+
+# Compositor
+"Alt+Shift+r" = "reload_config"
+"Alt+Shift+e" = "exit"
+
+# Autostart
+autostart = [
+    # "waybar",
+    # "swaybg -i ~/Pictures/wallpaper.png",
+]

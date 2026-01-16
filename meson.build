@@ -1,0 +1,37 @@
+project('compositor', 'c',
+  default_options: ['c_std=c11', 'warning_level=2'])
+
+wlroots = dependency('wlroots-0.18')
+wayland_server = dependency('wayland-server')
+wayland_protocols = dependency('wayland-protocols')
+xkbcommon = dependency('xkbcommon')
+
+wl_protocol_dir = wayland_protocols.get_variable('pkgdatadir')
+wayland_scanner = find_program('wayland-scanner')
+
+protocols = [
+  wl_protocol_dir / 'stable/xdg-shell/xdg-shell.xml',
+  'protocols/wlr-layer-shell-unstable-v1.xml',
+]
+
+protocol_headers = []
+foreach p : protocols
+  protocol_headers += custom_target(
+    p.underscorify() + '_header',
+    input: p,
+    output: '@BASENAME@-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+  )
+endforeach
+
+src = [
+  'src/main.c',
+  'src/core.c',
+  'src/shell.c',
+  'src/config.c',
+  'src/toml.c',
+]
+
+executable('compositor', src, protocol_headers,
+  dependencies: [wlroots, wayland_server, xkbcommon],
+  include_directories: include_directories('.'))
