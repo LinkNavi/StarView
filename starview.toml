@@ -1,5 +1,19 @@
-# StarView Configuration
+# ~/.config/starview/starview.toml
+# Main configuration file
 
+# Include other config files
+# You can specify individual files or entire directories
+#include = [
+#   "general.toml",
+#   "decoration.toml",
+#   "animation.toml",
+#   "keybinds/",  # Loads all .toml files in keybinds/ directory
+#   "rules.toml"
+#]
+
+# ============================================================================
+# ~/.config/starview/general.toml
+# ============================================================================
 [general]
 gaps_inner = 5
 gaps_outer = 10
@@ -8,41 +22,152 @@ border_color_active = "#89b4fa"
 border_color_inactive = "#45475a"
 focus_follows_mouse = true
 default_mode = "tiling"  # "tiling" or "floating"
+resize_step = 50
+move_step = 50
 
+# ============================================================================
+# ~/.config/starview/decoration.toml
+# ============================================================================
+[decoration]
+enabled = true
+height = 30
+button_size = 12
+button_spacing = 8
+corner_radius = 8
+
+# Colors (Catppuccin Mocha theme)
+bg_color = "#1e1e2e"
+bg_color_inactive = "#313244"
+title_color = "#cdd6f4"
+title_color_inactive = "#6c7086"
+
+# Button colors
+close_color = "#f38ba8"
+close_hover = "#eba0ac"
+maximize_color = "#a6e3a1"
+maximize_hover = "#94e2d5"
+minimize_color = "#f9e2af"
+minimize_hover = "#f5c2e7"
+
+# Font settings
+font = "sans"
+font_size = 12
+
+# Button layout: false = Windows style (right), true = macOS style (left)
+buttons_left = false
+
+# ============================================================================
+# ~/.config/starview/animation.toml
+# ============================================================================
 [animation]
 enabled = true
-speed = 200
+duration = 200  # milliseconds
 
+# Animation types for different events
+# Options: none, fade, slide, zoom, slide_fade, slide_up, slide_down, slide_left, slide_right
+window_open = "zoom"
+window_close = "fade"
+window_move = "slide"
+window_resize = "none"
+workspace_switch = "slide"
+
+# Easing curves
+# Options: linear, ease_in, ease_out, ease_in_out, bounce, spring
+curve = "ease_out"
+
+# Animation parameters
+fade_min = 0.0     # Minimum opacity for fade animations (0.0 - 1.0)
+zoom_min = 0.8     # Minimum scale for zoom animations (0.0 - 1.0)
+
+# ============================================================================
+# ~/.config/starview/tiling.toml
+# ============================================================================
 [tiling]
-master_ratio = 0.55
-master_count = 1
+master_ratio = 0.55  # Width ratio of master area (0.1 - 0.9)
+master_count = 1     # Number of windows in master area
 
+# ============================================================================
+# ~/.config/starview/keybinds/apps.toml
+# ============================================================================
 [keybinds]
-# Apps
+# Terminal and launcher
 "Alt+Return" = "spawn kitty"
+"Alt+Shift+Return" = "spawn alacritty"
 "Alt+d" = "spawn wofi --show drun"
-"Alt+b" = "spawn firefox"
+"Alt+Shift+d" = "spawn rofi -show drun"
 
+# Browsers
+"Alt+b" = "spawn firefox"
+"Alt+Shift+b" = "spawn chromium"
+
+# File manager
+"Alt+e" = "spawn thunar"
+
+# ============================================================================
+# ~/.config/starview/keybinds/windows.toml
+# ============================================================================
+[keybinds]
 # Window management
 "Alt+q" = "close"
 "Alt+f" = "fullscreen"
 "Alt+Space" = "toggle_floating"
+"Alt+m" = "minimize"
+"Alt+Shift+m" = "maximize"
 
+# Snapping
+"Alt+Left" = "snap_left"
+"Alt+Right" = "snap_right"
+"Alt+c" = "center"
+
+# ============================================================================
+# ~/.config/starview/keybinds/focus.toml
+# ============================================================================
+[keybinds]
 # Focus (vim keys)
 "Alt+h" = "focus left"
 "Alt+j" = "focus down"
 "Alt+k" = "focus up"
 "Alt+l" = "focus right"
+
+# Focus (arrow keys)
+"Alt+Up" = "focus up"
+"Alt+Down" = "focus down"
+
+# Cycle focus
 "Alt+Tab" = "focus_next"
 "Alt+Shift+Tab" = "focus_prev"
 
+# ============================================================================
+# ~/.config/starview/keybinds/move.toml
+# ============================================================================
+[keybinds]
 # Move windows (vim keys)
 "Alt+Shift+h" = "move left"
 "Alt+Shift+j" = "move down"
 "Alt+Shift+k" = "move up"
 "Alt+Shift+l" = "move right"
 
-# Workspaces
+# Move windows (arrow keys)
+"Alt+Shift+Left" = "move left"
+"Alt+Shift+Right" = "move right"
+"Alt+Shift+Up" = "move up"
+"Alt+Shift+Down" = "move down"
+
+# ============================================================================
+# ~/.config/starview/keybinds/resize.toml
+# ============================================================================
+[keybinds]
+# Resize windows
+"Alt+Ctrl+h" = "resize_shrink_width"
+"Alt+Ctrl+l" = "resize_grow_width"
+"Alt+Ctrl+k" = "resize_shrink_height"
+"Alt+Ctrl+j" = "resize_grow_height"
+
+# ============================================================================
+# ~/.config/starview/keybinds/workspaces.toml
+# ============================================================================
+[keybinds]
+# Switch workspace
 "Alt+1" = "workspace 1"
 "Alt+2" = "workspace 2"
 "Alt+3" = "workspace 3"
@@ -59,7 +184,19 @@ master_count = 1
 "Alt+Shift+3" = "move_to_workspace 3"
 "Alt+Shift+4" = "move_to_workspace 4"
 "Alt+Shift+5" = "move_to_workspace 5"
+"Alt+Shift+6" = "move_to_workspace 6"
+"Alt+Shift+7" = "move_to_workspace 7"
+"Alt+Shift+8" = "move_to_workspace 8"
+"Alt+Shift+9" = "move_to_workspace 9"
 
+# Cycle workspaces
+"Alt+bracketleft" = "workspace_prev"
+"Alt+bracketright" = "workspace_next"
+
+# ============================================================================
+# ~/.config/starview/keybinds/layout.toml
+# ============================================================================
+[keybinds]
 # Mode switching
 "Alt+t" = "mode_tiling"
 "Alt+w" = "mode_floating"
@@ -68,15 +205,66 @@ master_count = 1
 # Master-stack layout adjustments
 "Alt+i" = "inc_master_count"
 "Alt+o" = "dec_master_count"
-"Alt+bracketleft" = "dec_master_ratio"
-"Alt+bracketright" = "inc_master_ratio"
+"Alt+minus" = "dec_master_ratio"
+"Alt+equal" = "inc_master_ratio"
 
-# Compositor
+# ============================================================================
+# ~/.config/starview/keybinds/system.toml
+# ============================================================================
+[keybinds]
+# Compositor control
 "Alt+Shift+r" = "reload_config"
 "Alt+Shift+e" = "exit"
+"Alt+Shift+q" = "exit"
 
-# Autostart
+# Screenshots (using grim + slurp)
+"Print" = "spawn grim ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"
+"Shift+Print" = "spawn grim -g \"$(slurp)\" ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"
+
+# Screen lock
+"Alt+Escape" = "spawn swaylock"
+
+# ============================================================================
+# ~/.config/starview/rules.toml
+# ============================================================================
+[[rules]]
+app_id = "firefox"
+workspace = 2
+
+[[rules]]
+app_id = "org.telegram.desktop"
+workspace = 3
+floating = true
+
+[[rules]]
+title = "*Picture-in-Picture*"
+floating = true
+x = 1400
+y = 50
+width = 500
+height = 300
+
+[[rules]]
+app_id = "mpv"
+floating = true
+
+[[rules]]
+app_id = "pavucontrol"
+floating = true
+width = 600
+height = 400
+
+[[rules]]
+app_id = ".*"
+title = ".*- Sharing Indicator"
+floating = true
+
+# ============================================================================
+# ~/.config/starview/autostart.toml
+# ============================================================================
 autostart = [
-    # "waybar",
-    # "swaybg -i ~/Pictures/wallpaper.png",
+    "waybar",
+    "swaybg -i ~/Pictures/wallpaper.png -m fill",
+    "mako",
+    "wl-paste --watch cliphist store",
 ]

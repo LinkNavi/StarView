@@ -51,6 +51,12 @@ float anim_ease(float t, enum anim_curve curve) {
         }
     }
     
+    case CURVE_SPRING: {
+        float c4 = (2.0f * M_PI) / 3.0f;
+        return t == 0.0f ? 0.0f : t == 1.0f ? 1.0f :
+            powf(2.0f, -10.0f * t) * sinf((t * 10.0f - 0.75f) * c4) + 1.0f;
+    }
+    
     default:
         return t;
     }
@@ -116,6 +122,18 @@ void anim_start(struct toplevel *toplevel, enum anim_type type,
     case ANIM_SLIDE_FADE:
         a->start_opacity = config.anim.fade_min;
         break;
+    case ANIM_SLIDE_UP:
+        a->start_y = end_y + 50;
+        break;
+    case ANIM_SLIDE_DOWN:
+        a->start_y = end_y - 50;
+        break;
+    case ANIM_SLIDE_LEFT:
+        a->start_x = end_x + 50;
+        break;
+    case ANIM_SLIDE_RIGHT:
+        a->start_x = end_x - 50;
+        break;
     default:
         break;
     }
@@ -179,7 +197,11 @@ void anim_update(struct server *server) {
         
         switch (a->type) {
         case ANIM_SLIDE:
-        case ANIM_SLIDE_FADE: {
+        case ANIM_SLIDE_FADE:
+        case ANIM_SLIDE_UP:
+        case ANIM_SLIDE_DOWN:
+        case ANIM_SLIDE_LEFT:
+        case ANIM_SLIDE_RIGHT: {
             int x = (int)lerp(a->start_x, a->end_x, eased);
             int y = (int)lerp(a->start_y, a->end_y, eased);
             wlr_scene_node_set_position(node, x, y);
@@ -232,33 +254,11 @@ void anim_update(struct server *server) {
     (void)need_redraw;
 }
 
-// Animation timer callback
-static int anim_timer_cb(void *data) {
-    struct server *server = data;
-    anim_update(server);
-    
-    // Check if any animations are still active
-    bool any_active = false;
-    struct toplevel *toplevel;
-    wl_list_for_each(toplevel, &server->toplevels, link) {
-        if (toplevel->anim.active) {
-            any_active = true;
-            break;
-        }
-    }
-    
-    if (any_active && server->anim_timer) {
-        // Schedule next update (60fps)
-        wl_event_source_timer_update(server->anim_timer, 16);
-    }
-    
-    return 0;
-}
-
 void anim_schedule_update(struct server *server) {
     if (!server->anim_timer) {
         struct wl_event_loop *loop = wl_display_get_event_loop(server->display);
-        server->anim_timer = wl_event_loop_add_timer(loop, anim_timer_cb, server);
+        server->anim_timer = wl_event_loop_add_timer(loop, 
+            (int (*)(void *))anim_update, server);
     }
     wl_event_source_timer_update(server->anim_timer, 16);
 }

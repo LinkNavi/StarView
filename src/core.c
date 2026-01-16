@@ -72,47 +72,136 @@ void server_new_output(struct wl_listener *listener, void *data) {
   wl_list_insert(&server->outputs, &output->link);
 }
 
-/* Cursor handlers */
 static void process_cursor_motion(struct server *server, uint32_t time) {
-  double sx, sy;
-  struct wlr_surface *surface = NULL;
-  struct toplevel *toplevel = toplevel_at(
-      server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
+    double sx, sy;
+    struct wlr_surface *surface = NULL;
+    struct toplevel *toplevel = toplevel_at(
+        server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
 
-  if (!toplevel) {
-    wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
-    wlr_seat_pointer_clear_focus(server->seat);
-  } else {
-    wlr_seat_pointer_notify_enter(server->seat, surface, sx, sy);
-    wlr_seat_pointer_notify_motion(server->seat, time, sx, sy);
-  }
+    if (!toplevel) {
+        wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
+        wlr_seat_pointer_clear_focus(server->seat);
+    } else {
+        // Update decoration hover state
+        if (config.decor.enabled) {
+            decor_update_hover(toplevel, server->cursor->x, server->cursor->y);
+            
+            // Set cursor based on decoration hit test
+            enum decor_hit hit = decor_hit_test(toplevel, server->cursor->x, server->cursor->y);
+            const char *cursor_name = "default";
+            
+            switch (hit) {
+            case HIT_RESIZE_TOP:
+            case HIT_RESIZE_BOTTOM:
+                cursor_name = "ns-resize";
+                break;
+            case HIT_RESIZE_LEFT:
+            case HIT_RESIZE_RIGHT:
+                cursor_name = "ew-resize";
+                break;
+            case HIT_RESIZE_TOP_LEFT:
+            case HIT_RESIZE_BOTTOM_RIGHT:
+                cursor_name = "nwse-resize";
+                break;
+            case HIT_RESIZE_TOP_RIGHT:
+            case HIT_RESIZE_BOTTOM_LEFT:
+                cursor_name = "nesw-resize";
+                break;
+            case HIT_TITLEBAR:
+                cursor_name = "default";
+                break;
+            default:
+                cursor_name = "default";
+                break;
+            }
+            
+            wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, cursor_name);
+        }
+        
+        wlr_seat_pointer_notify_enter(server->seat, surface, sx, sy);
+        wlr_seat_pointer_notify_motion(server->seat, time, sx, sy);
+    }
 }
 
 void cursor_motion(struct wl_listener *listener, void *data) {
-  struct server *server = wl_container_of(listener, server, cursor_motion);
-  struct wlr_pointer_motion_event *event = data;
-  if (cursor_state.mode == CURSOR_MOVE) {
-    wlr_scene_node_set_position(&cursor_state.toplevel->scene_tree->node,
-                                server->cursor->x - cursor_state.grab_x,
-                                server->cursor->y - cursor_state.grab_y);
-    return;
-  }
+    struct server *server = wl_container_of(listener, server, cursor_motion);
+    struct wlr_pointer_motion_event *event = data;
+    
+    if (cursor_state.mode == CURSOR_MOVE) {
+        struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
+            &cursor_state.toplevel->decor.tree->node : 
+            &cursor_state.toplevel->scene_tree->node;
+        wlr_scene_node_set_position(node,
+                                    server->cursor->x - cursor_state.grab_x,
+                                    server->cursor->y - cursor_state.grab_y);
+        wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+        return;
+    }
 
-  if (cursor_state.mode == CURSOR_RESIZE) {
-    double dx = server->cursor->x - cursor_state.grab_x;
-    double dy = server->cursor->y - cursor_state.grab_y;
-    int new_width = cursor_state.grab_box.width + dx;
-    int new_height = cursor_state.grab_box.height + dy;
-    wlr_xdg_toplevel_set_size(cursor_state.toplevel->xdg_toplevel,
-                              new_width > 50 ? new_width : 50,
-                              new_height > 50 ? new_height : 50);
-    return;
-  }
-  wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x,
-                  event->delta_y);
-  process_cursor_motion(server, event->time_msec);
+    if (cursor_state.mode == CURSOR_RESIZE) {
+        double dx = server->cursor->x - cursor_state.grab_x;
+        double dy = server->cursor->y - cursor_state.grab_y;
+        
+        int new_x = cursor_state.grab_box.x;
+        int new_y = cursor_state.grab_box.y;
+        int new_width = cursor_state.grab_box.width;
+        int new_height = cursor_state.grab_box.height;
+        
+        // Apply deltas based on resize edge
+        enum decor_hit edge = cursor_state.resize_edges;
+        
+        // Horizontal resize
+        if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
+            edge == HIT_RESIZE_BOTTOM_LEFT) {
+            new_x = cursor_state.grab_box.x + dx;
+            new_width = cursor_state.grab_box.width - dx;
+        } else if (edge == HIT_RESIZE_RIGHT || edge == HIT_RESIZE_TOP_RIGHT || 
+                   edge == HIT_RESIZE_BOTTOM_RIGHT) {
+            new_width = cursor_state.grab_box.width + dx;
+        }
+        
+        // Vertical resize
+        if (edge == HIT_RESIZE_TOP || edge == HIT_RESIZE_TOP_LEFT || 
+            edge == HIT_RESIZE_TOP_RIGHT) {
+            new_y = cursor_state.grab_box.y + dy;
+            new_height = cursor_state.grab_box.height - dy;
+        } else if (edge == HIT_RESIZE_BOTTOM || edge == HIT_RESIZE_BOTTOM_LEFT || 
+                   edge == HIT_RESIZE_BOTTOM_RIGHT) {
+            new_height = cursor_state.grab_box.height + dy;
+        }
+        
+        // Enforce minimum size
+        if (new_width < 100) {
+            new_width = 100;
+            if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
+                edge == HIT_RESIZE_BOTTOM_LEFT) {
+                new_x = cursor_state.grab_box.x + cursor_state.grab_box.width - 100;
+            }
+        }
+        if (new_height < 100) {
+            new_height = 100;
+            if (edge == HIT_RESIZE_TOP || edge == HIT_RESIZE_TOP_LEFT || 
+                edge == HIT_RESIZE_TOP_RIGHT) {
+                new_y = cursor_state.grab_box.y + cursor_state.grab_box.height - 100;
+            }
+        }
+        
+        // Apply resize
+        struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
+            &cursor_state.toplevel->decor.tree->node : 
+            &cursor_state.toplevel->scene_tree->node;
+        wlr_scene_node_set_position(node, new_x, new_y);
+        wlr_xdg_toplevel_set_size(cursor_state.toplevel->xdg_toplevel, 
+                                   new_width, new_height);
+        
+        wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+        return;
+    }
+    
+    wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x,
+                    event->delta_y);
+    process_cursor_motion(server, event->time_msec);
 }
-
 void cursor_motion_abs(struct wl_listener *listener, void *data) {
   struct server *server = wl_container_of(listener, server, cursor_motion_abs);
   struct wlr_pointer_motion_absolute_event *event = data;

@@ -28,6 +28,10 @@ enum anim_type {
     ANIM_SLIDE,
     ANIM_ZOOM,
     ANIM_SLIDE_FADE,
+    ANIM_SLIDE_UP,
+    ANIM_SLIDE_DOWN,
+    ANIM_SLIDE_LEFT,
+    ANIM_SLIDE_RIGHT,
 };
 
 enum anim_curve {
@@ -36,6 +40,7 @@ enum anim_curve {
     CURVE_EASE_OUT,
     CURVE_EASE_IN_OUT,
     CURVE_BOUNCE,
+    CURVE_SPRING,
 };
 
 /*
