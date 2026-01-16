@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <xkbcommon/xkbcommon.h>
 #include <wlr/types/wlr_keyboard.h>
 
@@ -18,15 +20,49 @@ struct config config = {
     .border_color_inactive = 0x45475aff,
     .focus_follows_mouse = true,
     .default_mode = MODE_TILING,
-    .animations_enabled = true,
-    .animation_speed = 200,
+    .resize_step = 50,
+    .move_step = 50,
     .master_ratio = 0.55f,
     .master_count = 1,
     .keybind_count = 0,
     .autostart_count = 0,
+    .rule_count = 0,
+    .decor = {
+        .enabled = true,
+        .height = 30,
+        .button_size = 12,
+        .button_spacing = 8,
+        .corner_radius = 8,
+        .bg_color = 0x1e1e2eff,
+        .bg_color_inactive = 0x313244ff,
+        .title_color = 0xcdd6f4ff,
+        .title_color_inactive = 0x6c7086ff,
+        .btn_close_color = 0xf38ba8ff,
+        .btn_close_hover = 0xeba0acff,
+        .btn_max_color = 0xa6e3a1ff,
+        .btn_max_hover = 0x94e2d5ff,
+        .btn_min_color = 0xf9e2afff,
+        .btn_min_hover = 0xf5c2e7ff,
+        .font = "sans",
+        .font_size = 12,
+        .buttons_left = false,
+    },
+    .anim = {
+        .enabled = true,
+        .duration_ms = 200,
+        .window_open = ANIM_ZOOM,
+        .window_close = ANIM_FADE,
+        .window_move = ANIM_NONE,
+        .window_resize = ANIM_NONE,
+        .workspace_switch = ANIM_SLIDE,
+        .curve = CURVE_EASE_OUT,
+        .fade_min = 0.0f,
+        .zoom_min = 0.8f,
+    },
 };
 
 static char config_path[512] = {0};
+static int include_depth = 0;
 
 /*
  * ACTION STRING MAP
@@ -35,15 +71,10 @@ static struct {
     const char *name;
     enum keybind_action action;
 } action_map[] = {
-    // Spawning
     {"spawn",               ACTION_SPAWN},
-    
-    // Window management
     {"close",               ACTION_CLOSE},
     {"fullscreen",          ACTION_FULLSCREEN},
     {"toggle_floating",     ACTION_TOGGLE_FLOATING},
-    
-    // Focus
     {"focus_left",          ACTION_FOCUS_LEFT},
     {"focus_right",         ACTION_FOCUS_RIGHT},
     {"focus_up",            ACTION_FOCUS_UP},
@@ -51,43 +82,35 @@ static struct {
     {"focus_next",          ACTION_FOCUS_NEXT},
     {"focus_prev",          ACTION_FOCUS_PREV},
     {"focus",               ACTION_NONE},
-    
-    // Move windows
     {"move_left",           ACTION_MOVE_LEFT},
     {"move_right",          ACTION_MOVE_RIGHT},
     {"move_up",             ACTION_MOVE_UP},
     {"move_down",           ACTION_MOVE_DOWN},
     {"move",                ACTION_NONE},
-    
-    // Resize
     {"resize_grow_width",   ACTION_RESIZE_GROW_WIDTH},
     {"resize_shrink_width", ACTION_RESIZE_SHRINK_WIDTH},
     {"resize_grow_height",  ACTION_RESIZE_GROW_HEIGHT},
     {"resize_shrink_height",ACTION_RESIZE_SHRINK_HEIGHT},
-    
-    // Workspaces
     {"workspace",           ACTION_WORKSPACE},
     {"move_to_workspace",   ACTION_MOVE_TO_WORKSPACE},
     {"workspace_next",      ACTION_WORKSPACE_NEXT},
     {"workspace_prev",      ACTION_WORKSPACE_PREV},
-    
-    // Mode switching
     {"mode_tiling",         ACTION_MODE_TILING},
     {"mode_floating",       ACTION_MODE_FLOATING},
     {"toggle_mode",         ACTION_TOGGLE_MODE},
-    
-    // Master-stack
     {"inc_master_count",    ACTION_INC_MASTER_COUNT},
     {"dec_master_count",    ACTION_DEC_MASTER_COUNT},
     {"inc_master_ratio",    ACTION_INC_MASTER_RATIO},
     {"dec_master_ratio",    ACTION_DEC_MASTER_RATIO},
-    
-    // Compositor
     {"reload_config",       ACTION_RELOAD_CONFIG},
     {"reload",              ACTION_RELOAD_CONFIG},
     {"exit",                ACTION_EXIT},
     {"quit",                ACTION_EXIT},
-    
+    {"minimize",            ACTION_MINIMIZE},
+    {"maximize",            ACTION_MAXIMIZE},
+    {"snap_left",           ACTION_SNAP_LEFT},
+    {"snap_right",          ACTION_SNAP_RIGHT},
+    {"center",              ACTION_CENTER_WINDOW},
     {NULL, ACTION_NONE}
 };
 
@@ -204,10 +227,7 @@ bool parse_keybind(const char *str, uint32_t *mods, uint32_t *keysym) {
 }
 
 static void parse_keybinds(toml_table_t *keybinds_table) {
-    if (!keybinds_table) {
-        printf("DEBUG: No keybinds table found!\n");
-        return;
-    }
+    if (!keybinds_table) return;
     
     int i = 0;
     const char *key;
@@ -225,9 +245,6 @@ static void parse_keybinds(toml_table_t *keybinds_table) {
         }
         
         kb->action = parse_action(val.u.s, kb->arg);
-        
-        printf("Keybind: '%s' -> action=%d arg='%s' (mods=0x%x sym=0x%x)\n",
-               key, kb->action, kb->arg, kb->modifiers, kb->keysym);
         
         if (kb->action == ACTION_NONE) {
             free(val.u.s);
@@ -251,22 +268,259 @@ static void parse_autostart(toml_array_t *arr) {
     }
 }
 
-int config_load(const char *path) {
-    FILE *fp = fopen(path, "r");
-    if (!fp) {
-        fprintf(stderr, "Config not found: %s (using defaults)\n", path);
+static enum anim_type parse_anim_type(const char *str) {
+    if (!str) return ANIM_NONE;
+    if (strcasecmp(str, "none") == 0) return ANIM_NONE;
+    if (strcasecmp(str, "fade") == 0) return ANIM_FADE;
+    if (strcasecmp(str, "slide") == 0) return ANIM_SLIDE;
+    if (strcasecmp(str, "zoom") == 0) return ANIM_ZOOM;
+    if (strcasecmp(str, "slide_fade") == 0) return ANIM_SLIDE_FADE;
+    return ANIM_NONE;
+}
+
+static enum anim_curve parse_anim_curve(const char *str) {
+    if (!str) return CURVE_LINEAR;
+    if (strcasecmp(str, "linear") == 0) return CURVE_LINEAR;
+    if (strcasecmp(str, "ease_in") == 0) return CURVE_EASE_IN;
+    if (strcasecmp(str, "ease_out") == 0) return CURVE_EASE_OUT;
+    if (strcasecmp(str, "ease_in_out") == 0) return CURVE_EASE_IN_OUT;
+    if (strcasecmp(str, "bounce") == 0) return CURVE_BOUNCE;
+    return CURVE_LINEAR;
+}
+
+static void parse_decoration(toml_table_t *decor) {
+    if (!decor) return;
+    
+    toml_datum_t v;
+    
+    v = toml_bool_in(decor, "enabled");
+    if (v.ok) config.decor.enabled = v.u.b;
+    
+    v = toml_int_in(decor, "height");
+    if (v.ok) config.decor.height = v.u.i;
+    
+    v = toml_int_in(decor, "button_size");
+    if (v.ok) config.decor.button_size = v.u.i;
+    
+    v = toml_int_in(decor, "button_spacing");
+    if (v.ok) config.decor.button_spacing = v.u.i;
+    
+    v = toml_int_in(decor, "corner_radius");
+    if (v.ok) config.decor.corner_radius = v.u.i;
+    
+    v = toml_string_in(decor, "bg_color");
+    if (v.ok) { config.decor.bg_color = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "bg_color_inactive");
+    if (v.ok) { config.decor.bg_color_inactive = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "title_color");
+    if (v.ok) { config.decor.title_color = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "title_color_inactive");
+    if (v.ok) { config.decor.title_color_inactive = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "close_color");
+    if (v.ok) { config.decor.btn_close_color = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "maximize_color");
+    if (v.ok) { config.decor.btn_max_color = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "minimize_color");
+    if (v.ok) { config.decor.btn_min_color = parse_color(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(decor, "font");
+    if (v.ok) { 
+        strncpy(config.decor.font, v.u.s, sizeof(config.decor.font) - 1);
+        free(v.u.s); 
+    }
+    
+    v = toml_int_in(decor, "font_size");
+    if (v.ok) config.decor.font_size = v.u.i;
+    
+    v = toml_bool_in(decor, "buttons_left");
+    if (v.ok) config.decor.buttons_left = v.u.b;
+}
+
+static void parse_animation(toml_table_t *anim) {
+    if (!anim) return;
+    
+    toml_datum_t v;
+    
+    v = toml_bool_in(anim, "enabled");
+    if (v.ok) config.anim.enabled = v.u.b;
+    
+    v = toml_int_in(anim, "duration");
+    if (v.ok) config.anim.duration_ms = v.u.i;
+    
+    v = toml_int_in(anim, "speed");  // alias
+    if (v.ok) config.anim.duration_ms = v.u.i;
+    
+    v = toml_string_in(anim, "window_open");
+    if (v.ok) { config.anim.window_open = parse_anim_type(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(anim, "window_close");
+    if (v.ok) { config.anim.window_close = parse_anim_type(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(anim, "window_move");
+    if (v.ok) { config.anim.window_move = parse_anim_type(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(anim, "window_resize");
+    if (v.ok) { config.anim.window_resize = parse_anim_type(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(anim, "workspace_switch");
+    if (v.ok) { config.anim.workspace_switch = parse_anim_type(v.u.s); free(v.u.s); }
+    
+    v = toml_string_in(anim, "curve");
+    if (v.ok) { config.anim.curve = parse_anim_curve(v.u.s); free(v.u.s); }
+    
+    v = toml_double_in(anim, "fade_min");
+    if (v.ok) config.anim.fade_min = v.u.d;
+    
+    v = toml_double_in(anim, "zoom_min");
+    if (v.ok) config.anim.zoom_min = v.u.d;
+}
+
+static void parse_window_rules(toml_array_t *rules) {
+    if (!rules) return;
+    
+    int len = toml_array_nelem(rules);
+    for (int i = 0; i < len && config.rule_count < MAX_WINDOW_RULES; i++) {
+        toml_table_t *rule = toml_table_at(rules, i);
+        if (!rule) continue;
+        
+        struct window_rule *r = &config.rules[config.rule_count];
+        memset(r, 0, sizeof(*r));
+        r->opacity = 1.0f;
+        r->workspace = -1;
+        
+        toml_datum_t v;
+        
+        v = toml_string_in(rule, "app_id");
+        if (v.ok) { strncpy(r->app_id, v.u.s, sizeof(r->app_id) - 1); free(v.u.s); }
+        
+        v = toml_string_in(rule, "title");
+        if (v.ok) { strncpy(r->title, v.u.s, sizeof(r->title) - 1); free(v.u.s); }
+        
+        v = toml_bool_in(rule, "floating");
+        if (v.ok) r->floating = v.u.b;
+        
+        v = toml_bool_in(rule, "fullscreen");
+        if (v.ok) r->fullscreen = v.u.b;
+        
+        v = toml_int_in(rule, "workspace");
+        if (v.ok) r->workspace = v.u.i;
+        
+        v = toml_int_in(rule, "x");
+        if (v.ok) { r->x = v.u.i; r->has_position = true; }
+        
+        v = toml_int_in(rule, "y");
+        if (v.ok) { r->y = v.u.i; r->has_position = true; }
+        
+        v = toml_int_in(rule, "width");
+        if (v.ok) { r->width = v.u.i; r->has_size = true; }
+        
+        v = toml_int_in(rule, "height");
+        if (v.ok) { r->height = v.u.i; r->has_size = true; }
+        
+        v = toml_double_in(rule, "opacity");
+        if (v.ok) { r->opacity = v.u.d; r->has_opacity = true; }
+        
+        config.rule_count++;
+    }
+}
+
+static int load_config_file(const char *path);
+
+static int compare_strings(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+static void load_config_dir(const char *dirpath) {
+    DIR *dir = opendir(dirpath);
+    if (!dir) return;
+    
+    // Collect .toml files
+    char *files[128];
+    int file_count = 0;
+    
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && file_count < 128) {
+        if (entry->d_name[0] == '.') continue;
+        
+        size_t len = strlen(entry->d_name);
+        if (len < 5 || strcmp(entry->d_name + len - 5, ".toml") != 0) continue;
+        
+        char fullpath[512];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+        
+        struct stat st;
+        if (stat(fullpath, &st) == 0 && S_ISREG(st.st_mode)) {
+            files[file_count++] = strdup(fullpath);
+        }
+    }
+    closedir(dir);
+    
+    // Sort alphabetically for deterministic load order
+    qsort(files, file_count, sizeof(char *), compare_strings);
+    
+    // Load each file
+    for (int i = 0; i < file_count; i++) {
+        load_config_file(files[i]);
+        free(files[i]);
+    }
+}
+
+static int load_config_file(const char *path) {
+    if (include_depth >= MAX_INCLUDE_DEPTH) {
+        fprintf(stderr, "Config include depth exceeded\n");
         return -1;
     }
     
-    strncpy(config_path, path, sizeof(config_path) - 1);
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        fprintf(stderr, "Cannot open config: %s\n", path);
+        return -1;
+    }
+    
+    printf("Loading config: %s\n", path);
+    include_depth++;
     
     char errbuf[256];
     toml_table_t *root = toml_parse_file(fp, errbuf, sizeof(errbuf));
     fclose(fp);
     
     if (!root) {
-        fprintf(stderr, "Config parse error: %s\n", errbuf);
+        fprintf(stderr, "Config parse error in %s: %s\n", path, errbuf);
+        include_depth--;
         return -1;
+    }
+    
+    // Handle includes first
+    toml_array_t *includes = toml_array_in(root, "include");
+    if (includes) {
+        int len = toml_array_nelem(includes);
+        for (int i = 0; i < len; i++) {
+            toml_datum_t inc = toml_string_at(includes, i);
+            if (!inc.ok) continue;
+            
+            char fullpath[512];
+            if (inc.u.s[0] == '/') {
+                strncpy(fullpath, inc.u.s, sizeof(fullpath) - 1);
+            } else {
+                snprintf(fullpath, sizeof(fullpath), "%s/%s", config.config_dir, inc.u.s);
+            }
+            
+            struct stat st;
+            if (stat(fullpath, &st) == 0) {
+                if (S_ISDIR(st.st_mode)) {
+                    load_config_dir(fullpath);
+                } else {
+                    load_config_file(fullpath);
+                }
+            }
+            free(inc.u.s);
+        }
     }
     
     // [general]
@@ -301,19 +555,19 @@ int config_load(const char *path) {
             }
             free(v.u.s);
         }
+        
+        v = toml_int_in(general, "resize_step");
+        if (v.ok) config.resize_step = v.u.i;
+        
+        v = toml_int_in(general, "move_step");
+        if (v.ok) config.move_step = v.u.i;
     }
     
+    // [decoration]
+    parse_decoration(toml_table_in(root, "decoration"));
+    
     // [animation]
-    toml_table_t *animation = toml_table_in(root, "animation");
-    if (animation) {
-        toml_datum_t v;
-        
-        v = toml_bool_in(animation, "enabled");
-        if (v.ok) config.animations_enabled = v.u.b;
-        
-        v = toml_int_in(animation, "speed");
-        if (v.ok) config.animation_speed = v.u.i;
-    }
+    parse_animation(toml_table_in(root, "animation"));
     
     // [tiling]
     toml_table_t *tiling = toml_table_in(root, "tiling");
@@ -328,31 +582,52 @@ int config_load(const char *path) {
     }
     
     // [keybinds]
-    config.keybind_count = 0;
-    toml_table_t *keybinds = toml_table_in(root, "keybinds");
-    parse_keybinds(keybinds);
+    parse_keybinds(toml_table_in(root, "keybinds"));
+    
+    // [[rules]]
+    parse_window_rules(toml_array_in(root, "rules"));
     
     // autostart
-    toml_array_t *autostart = toml_array_in(root, "autostart");
-    parse_autostart(autostart);
+    parse_autostart(toml_array_in(root, "autostart"));
     
     toml_free(root);
-    
-    printf("Config loaded: %d keybinds, %d autostart, mode=%s\n", 
-           config.keybind_count, config.autostart_count,
-           config.default_mode == MODE_TILING ? "tiling" : "floating");
+    include_depth--;
     
     return 0;
+}
+
+int config_load(const char *path) {
+    strncpy(config_path, path, sizeof(config_path) - 1);
+    
+    // Extract config directory
+    char *last_slash = strrchr(config_path, '/');
+    if (last_slash) {
+        size_t len = last_slash - config_path;
+        strncpy(config.config_dir, config_path, len);
+        config.config_dir[len] = '\0';
+    } else {
+        strcpy(config.config_dir, ".");
+    }
+    
+    int ret = load_config_file(path);
+    
+    printf("Config loaded: %d keybinds, %d rules, %d autostart\n", 
+           config.keybind_count, config.rule_count, config.autostart_count);
+    
+    return ret;
 }
 
 int config_reload(void) {
     if (config_path[0] == '\0') return -1;
     
+    // Clear autostart
     for (int i = 0; i < config.autostart_count; i++) {
         free(config.autostart[i]);
         config.autostart[i] = NULL;
     }
     config.autostart_count = 0;
+    config.keybind_count = 0;
+    config.rule_count = 0;
     
     printf("Reloading config...\n");
     return config_load(config_path);

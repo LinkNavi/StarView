@@ -23,7 +23,62 @@
 #include <wlr/util/log.h>
 #include <xkbcommon/xkbcommon.h>
 
-enum cursor_mode { CURSOR_NORMAL, CURSOR_MOVE, CURSOR_RESIZE };
+enum cursor_mode { 
+    CURSOR_NORMAL, 
+    CURSOR_MOVE, 
+    CURSOR_RESIZE,
+    CURSOR_RESIZE_TOP,
+    CURSOR_RESIZE_BOTTOM,
+    CURSOR_RESIZE_LEFT,
+    CURSOR_RESIZE_RIGHT,
+    CURSOR_RESIZE_TOP_LEFT,
+    CURSOR_RESIZE_TOP_RIGHT,
+    CURSOR_RESIZE_BOTTOM_LEFT,
+    CURSOR_RESIZE_BOTTOM_RIGHT,
+};
+
+/*
+ * ANIMATION STATE
+ */
+struct animation {
+    bool active;
+    enum anim_type type;
+    int64_t start_time;
+    int duration_ms;
+    
+    // Start/end values
+    float start_x, start_y;
+    float end_x, end_y;
+    float start_w, start_h;
+    float end_w, end_h;
+    float start_opacity;
+    float end_opacity;
+    float start_scale;
+    float end_scale;
+    
+    // Callback when done
+    void (*on_complete)(void *data);
+    void *data;
+};
+
+/*
+ * DECORATION BUTTON HIT
+ */
+enum decor_hit {
+    HIT_NONE = 0,
+    HIT_TITLEBAR,
+    HIT_CLOSE,
+    HIT_MAXIMIZE,
+    HIT_MINIMIZE,
+    HIT_RESIZE_TOP,
+    HIT_RESIZE_BOTTOM,
+    HIT_RESIZE_LEFT,
+    HIT_RESIZE_RIGHT,
+    HIT_RESIZE_TOP_LEFT,
+    HIT_RESIZE_TOP_RIGHT,
+    HIT_RESIZE_BOTTOM_LEFT,
+    HIT_RESIZE_BOTTOM_RIGHT,
+};
 
 struct layer_surface {
     struct server *server;
@@ -88,6 +143,9 @@ struct server {
     // Window management mode
     enum window_mode mode;
     int current_workspace;
+    
+    // Animation timer
+    struct wl_event_source *anim_timer;
 };
 
 struct output {
@@ -98,6 +156,26 @@ struct output {
     struct wl_listener frame;
     struct wl_listener request_state;
     struct wl_listener destroy;
+};
+
+/*
+ * DECORATION STRUCTURE
+ */
+struct decoration {
+    struct wlr_scene_tree *tree;
+    struct wlr_scene_rect *titlebar;
+    struct wlr_scene_rect *btn_close;
+    struct wlr_scene_rect *btn_max;
+    struct wlr_scene_rect *btn_min;
+    struct wlr_scene_rect *border_top;
+    struct wlr_scene_rect *border_bottom;
+    struct wlr_scene_rect *border_left;
+    struct wlr_scene_rect *border_right;
+    
+    int width;
+    bool hovered_close;
+    bool hovered_max;
+    bool hovered_min;
 };
 
 struct toplevel {
@@ -111,15 +189,29 @@ struct toplevel {
     struct wl_listener commit;
     struct wl_listener destroy;
     struct wl_listener request_fullscreen;
+    struct wl_listener request_minimize;
+    
+    // Decoration
+    struct decoration decor;
+    
+    // Animation state
+    struct animation anim;
     
     // Window state
-    bool floating;          // Per-window floating override
+    bool floating;
     bool fullscreen;
+    bool minimized;
+    bool maximized;
     int workspace;
+    float opacity;
     
-    // Saved geometry for mode switching
+    // Saved geometry for mode switching / maximize
     int saved_x, saved_y;
     int saved_width, saved_height;
+    
+    // Pre-maximize geometry
+    int pre_max_x, pre_max_y;
+    int pre_max_width, pre_max_height;
 };
 
 struct keyboard {
@@ -154,5 +246,27 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
 void arrange_windows(struct server *server);
 void focus_toplevel(struct toplevel *toplevel);
 struct toplevel *get_focused_toplevel(struct server *server);
+
+/* decor.c */
+void decor_create(struct toplevel *toplevel);
+void decor_update(struct toplevel *toplevel, bool focused);
+void decor_destroy(struct toplevel *toplevel);
+void decor_set_size(struct toplevel *toplevel, int width);
+enum decor_hit decor_hit_test(struct toplevel *toplevel, double x, double y);
+void decor_update_hover(struct toplevel *toplevel, double x, double y);
+
+/* anim.c */
+void anim_start(struct toplevel *toplevel, enum anim_type type,
+                float end_x, float end_y, float end_w, float end_h,
+                void (*on_complete)(void *), void *data);
+void anim_start_opacity(struct toplevel *toplevel, float end_opacity,
+                        void (*on_complete)(void *), void *data);
+void anim_update(struct server *server);
+bool anim_is_active(struct toplevel *toplevel);
+float anim_ease(float t, enum anim_curve curve);
+int64_t get_time_ms(void);
+
+/* rules.c */
+void apply_window_rules(struct toplevel *toplevel);
 
 #endif
