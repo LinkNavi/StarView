@@ -54,23 +54,35 @@ static void tile_output(struct server *server, struct output *output) {
         int x, y, w, h;
         
         if (master_i < master_count) {
+            // Master area
             int this_master_count = count < master_count ? count : master_count;
             x = outer;
             w = master_width;
             h = (height - outer * 2 - gaps * (this_master_count - 1)) / this_master_count;
             y = outer + master_i * (h + gaps);
+            
+            // Account for decorations
+            if (config.decor.enabled && toplevel->decor.tree) {
+                h = h > config.decor.height ? h - config.decor.height : h;
+            }
             master_i++;
         } else {
+            // Stack area
             x = outer + master_width + gaps;
             w = width - outer * 2 - master_width - gaps;
             h = (height - outer * 2 - gaps * (stack_count - 1)) / stack_count;
             y = outer + stack_i * (h + gaps);
+            
+            // Account for decorations
+            if (config.decor.enabled && toplevel->decor.tree) {
+                h = h > config.decor.height ? h - config.decor.height : h;
+            }
             stack_i++;
         }
         
-        if (config.decor.enabled && toplevel->decor.tree) {
-            h = h > config.decor.height ? h - config.decor.height : h;
-        }
+        // Ensure minimum size
+        if (w < 100) w = 100;
+        if (h < 50) h = 50;
         
         if (config.anim.enabled && config.anim.window_move != ANIM_NONE) {
             anim_start(toplevel, config.anim.window_move, x, y, w, h, NULL, NULL);
@@ -633,6 +645,16 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
             } else {
                 wlr_scene_node_set_enabled(node, !focused->minimized);
             }
+            
+            if (focused->minimized && !wl_list_empty(&server->toplevels)) {
+                struct toplevel *next;
+                wl_list_for_each(next, &server->toplevels, link) {
+                    if (next != focused && !next->minimized) {
+                        focus_toplevel(next);
+                        break;
+                    }
+                }
+            }
         }
         return true;
     
@@ -675,7 +697,6 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
                 wlr_scene_node_set_position(node, focused->pre_max_x, focused->pre_max_y);
                 wlr_xdg_toplevel_set_size(focused->xdg_toplevel, 
                     focused->pre_max_width, focused->pre_max_height);
-
             }
         }
         return true;
@@ -786,6 +807,7 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
     case ACTION_MOVE_UP:
     case ACTION_MOVE_DOWN:
         if (focused && (server->mode == MODE_FLOATING || focused->floating)) {
+            // Floating mode - move by step
             int dx = 0, dy = 0;
             if (action == ACTION_MOVE_LEFT) dx = -config.move_step;
             if (action == ACTION_MOVE_RIGHT) dx = config.move_step;
@@ -795,6 +817,27 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
             struct wlr_scene_node *node = focused->decor.tree ?
                 &focused->decor.tree->node : &focused->scene_tree->node;
             wlr_scene_node_set_position(node, node->x + dx, node->y + dy);
+        } else if (focused && server->mode == MODE_TILING && !focused->floating) {
+            // Tiling mode - swap windows in direction
+            int dx = 0, dy = 0;
+            if (action == ACTION_MOVE_LEFT) dx = -1;
+            if (action == ACTION_MOVE_RIGHT) dx = 1;
+            if (action == ACTION_MOVE_UP) dy = -1;
+            if (action == ACTION_MOVE_DOWN) dy = 1;
+            
+            struct toplevel *target = get_toplevel_in_direction(server, focused, dx, dy);
+            if (target && target != focused) {
+                // Swap positions in the list to change tiling order
+                wl_list_remove(&focused->link);
+                if (dy < 0 || dx < 0) {
+                    // Move before target
+                    wl_list_insert(&target->link, &focused->link);
+                } else {
+                    // Move after target
+                    wl_list_insert(target->link.next, &focused->link);
+                }
+                arrange_windows(server);
+            }
         }
         return true;
     
