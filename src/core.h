@@ -37,9 +37,6 @@ enum cursor_mode {
     CURSOR_RESIZE_BOTTOM_RIGHT,
 };
 
-/*
- * ANIMATION STATE
- */
 struct animation {
     bool active;
     enum anim_type type;
@@ -59,9 +56,6 @@ struct animation {
     void *data;
 };
 
-/*
- * DECORATION BUTTON HIT
- */
 enum decor_hit {
     HIT_NONE = 0,
     HIT_TITLEBAR,
@@ -78,9 +72,6 @@ enum decor_hit {
     HIT_RESIZE_BOTTOM_RIGHT,
 };
 
-/*
- * TITLEBAR ELEMENT TYPES
- */
 enum titlebar_element_type {
     TITLEBAR_BUTTON,
     TITLEBAR_LABEL,
@@ -191,9 +182,6 @@ struct output {
     struct wl_listener destroy;
 };
 
-/*
- * DECORATION STRUCTURE
- */
 struct decoration {
     struct wlr_scene_tree *tree;
     struct wlr_scene_rect *titlebar;
@@ -352,57 +340,48 @@ void titlebar_apply_preset_macos(struct titlebar *titlebar);
 void titlebar_apply_preset_minimal(struct titlebar *titlebar);
 void titlebar_elements_destroy(struct titlebar *titlebar);
 
-/* util.c - Geometry helpers */
+/* util.c */
 struct wlr_box toplevel_get_geometry(struct toplevel *toplevel);
 void toplevel_set_geometry(struct toplevel *toplevel, struct wlr_box geo);
 bool toplevel_contains_point(struct toplevel *toplevel, int x, int y);
 struct wlr_box box_intersection(struct wlr_box a, struct wlr_box b);
 bool box_overlaps(struct wlr_box a, struct wlr_box b);
 
-/* util.c - Output helpers */
 struct output *output_at(struct server *server, int x, int y);
 struct output *output_get_primary(struct server *server);
 struct wlr_box output_get_usable_area(struct output *output);
 
-/* util.c - Toplevel collection helpers */
 int server_count_toplevels(struct server *server, int workspace);
 int server_count_visible_toplevels(struct server *server);
 struct toplevel *server_find_toplevel_by_app_id(struct server *server, const char *app_id);
 struct toplevel *server_find_toplevel_by_title(struct server *server, const char *title);
 
-/* util.c - Workspace helpers */
 void workspace_show(struct server *server, int workspace);
 void workspace_move_toplevel(struct toplevel *toplevel, int workspace);
 bool workspace_is_empty(struct server *server, int workspace);
 
-/* util.c - Focus helpers */
 struct toplevel *focus_get_next(struct server *server, struct toplevel *current);
 struct toplevel *focus_get_prev(struct server *server, struct toplevel *current);
 struct toplevel *focus_find_urgent(struct server *server);
 
-/* util.c - Animation helpers */
 void toplevel_animate_move(struct toplevel *toplevel, int x, int y);
 void toplevel_animate_resize(struct toplevel *toplevel, int width, int height);
 void toplevel_animate_fade_in(struct toplevel *toplevel);
 void toplevel_animate_fade_out(struct toplevel *toplevel, void (*on_complete)(void *), void *data);
 
-/* util.c - Color helpers */
 uint32_t color_lerp(uint32_t a, uint32_t b, float t);
 uint32_t color_brighten(uint32_t color, float amount);
 uint32_t color_darken(uint32_t color, float amount);
 
-/* util.c - String helpers */
 char *string_copy(const char *str);
 bool string_starts_with(const char *str, const char *prefix);
 bool string_ends_with(const char *str, const char *suffix);
 
-/* util.c - Math helpers */
 int clamp_int(int value, int min, int max);
 float clamp_float(float value, float min, float max);
 float lerp_float(float a, float b, float t);
 int lerp_int(int a, int b, float t);
 
-/* util.c - Timer helpers */
 void *timer_schedule(struct server *server, int ms, void (*callback)(void *), void *data);
 void timer_cancel(void *timer_handle);
 

@@ -6,7 +6,7 @@ wayland_server = dependency('wayland-server')
 wayland_protocols = dependency('wayland-protocols')
 xkbcommon = dependency('xkbcommon')
 math = meson.get_compiler('c').find_library('m', required: true)
-
+json = dependency('json-c')
 wl_protocol_dir = wayland_protocols.get_variable('pkgdatadir')
 wayland_scanner = find_program('wayland-scanner')
 
@@ -35,9 +35,10 @@ src = [
   'src/anim.c',
   'src/rules.c',
   'src/util.c',
-  'src/titlebar.c'
+  'src/titlebar.c',
+  'src/ipc.c',
 ]
 
 executable('compositor', src, protocol_headers,
-  dependencies: [wlroots, wayland_server, xkbcommon, math],
+  dependencies: [wlroots, wayland_server, xkbcommon, math, json],
   include_directories: include_directories('.'))

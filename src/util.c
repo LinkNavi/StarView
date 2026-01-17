@@ -207,12 +207,6 @@ struct toplevel *focus_get_prev(struct server *server, struct toplevel *current)
 }
 
 struct toplevel *focus_find_urgent(struct server *server) {
-    struct toplevel *toplevel;
-    wl_list_for_each(toplevel, &server->toplevels, link) {
-        if (toplevel->xdg_toplevel->requested.urgent) {
-            return toplevel;
-        }
-    }
     return NULL;
 }
 
