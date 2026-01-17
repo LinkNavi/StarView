@@ -7,6 +7,10 @@
 #include <math.h>
 #include <time.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 int64_t get_time_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);

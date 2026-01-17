@@ -5,6 +5,7 @@ wlroots = dependency('wlroots-0.18')
 wayland_server = dependency('wayland-server')
 wayland_protocols = dependency('wayland-protocols')
 xkbcommon = dependency('xkbcommon')
+math = meson.get_compiler('c').find_library('m', required: true)
 
 wl_protocol_dir = wayland_protocols.get_variable('pkgdatadir')
 wayland_scanner = find_program('wayland-scanner')
@@ -30,8 +31,11 @@ src = [
   'src/shell.c',
   'src/config.c',
   'src/toml.c',
+  'src/decor.c',
+  'src/anim.c',
+  'src/rules.c',
 ]
 
 executable('compositor', src, protocol_headers,
-  dependencies: [wlroots, wayland_server, xkbcommon],
+  dependencies: [wlroots, wayland_server, xkbcommon, math],
   include_directories: include_directories('.'))
