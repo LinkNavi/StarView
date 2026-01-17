@@ -7,7 +7,6 @@
 #include <string.h>
 #include <wlr/types/wlr_scene.h>
 
-// Color conversion helper
 static void color_to_float(uint32_t color, float out[4]) {
     out[0] = ((color >> 24) & 0xff) / 255.0f;
     out[1] = ((color >> 16) & 0xff) / 255.0f;
@@ -15,7 +14,6 @@ static void color_to_float(uint32_t color, float out[4]) {
     out[3] = (color & 0xff) / 255.0f;
 }
 
-// Create a titlebar element (button, indicator, etc.)
 struct titlebar_element *titlebar_element_create(
     struct titlebar *titlebar, 
     enum titlebar_element_type type,
@@ -47,7 +45,6 @@ struct titlebar_element *titlebar_element_create(
     
     wlr_scene_node_set_position(&elem->rect->node, x, y);
     
-    // Add to titlebar's element list
     if (titlebar->element_count >= 32) {
         wlr_scene_node_destroy(&elem->rect->node);
         free(elem);
@@ -59,7 +56,6 @@ struct titlebar_element *titlebar_element_create(
     return elem;
 }
 
-// Create a standard button
 struct titlebar_element *titlebar_button_create(
     struct titlebar *titlebar,
     int x, int y,
@@ -77,7 +73,6 @@ struct titlebar_element *titlebar_button_create(
     return btn;
 }
 
-// Create a text label (placeholder rect for now)
 struct titlebar_element *titlebar_label_create(
     struct titlebar *titlebar,
     int x, int y,
@@ -96,7 +91,6 @@ struct titlebar_element *titlebar_label_create(
     return label;
 }
 
-// Create an indicator (small colored dot/rect)
 struct titlebar_element *titlebar_indicator_create(
     struct titlebar *titlebar,
     int x, int y,
@@ -107,7 +101,6 @@ struct titlebar_element *titlebar_indicator_create(
         titlebar, TITLEBAR_INDICATOR, x, y, size, size, color);
 }
 
-// Create a spacer (invisible element for layout)
 struct titlebar_element *titlebar_spacer_create(
     struct titlebar *titlebar,
     int x, int y,
@@ -123,7 +116,6 @@ struct titlebar_element *titlebar_spacer_create(
     return spacer;
 }
 
-// Update element position
 void titlebar_element_set_position(struct titlebar_element *elem, int x, int y) {
     if (!elem || !elem->rect) return;
     
@@ -132,7 +124,6 @@ void titlebar_element_set_position(struct titlebar_element *elem, int x, int y) 
     wlr_scene_node_set_position(&elem->rect->node, x, y);
 }
 
-// Update element size
 void titlebar_element_set_size(struct titlebar_element *elem, int width, int height) {
     if (!elem || !elem->rect) return;
     
@@ -141,7 +132,6 @@ void titlebar_element_set_size(struct titlebar_element *elem, int width, int hei
     wlr_scene_rect_set_size(elem->rect, width, height);
 }
 
-// Update element color
 void titlebar_element_set_color(struct titlebar_element *elem, uint32_t color) {
     if (!elem || !elem->rect) return;
     
@@ -151,7 +141,6 @@ void titlebar_element_set_color(struct titlebar_element *elem, uint32_t color) {
     wlr_scene_rect_set_color(elem->rect, rgba);
 }
 
-// Set element visibility
 void titlebar_element_set_visible(struct titlebar_element *elem, bool visible) {
     if (!elem || !elem->rect) return;
     
@@ -159,7 +148,6 @@ void titlebar_element_set_visible(struct titlebar_element *elem, bool visible) {
     wlr_scene_node_set_enabled(&elem->rect->node, visible);
 }
 
-// Set element text (for labels)
 void titlebar_element_set_text(struct titlebar_element *elem, const char *text) {
     if (!elem || elem->type != TITLEBAR_LABEL) return;
     
@@ -169,7 +157,6 @@ void titlebar_element_set_text(struct titlebar_element *elem, const char *text) 
     }
 }
 
-// Hit test an element
 bool titlebar_element_contains(struct titlebar_element *elem, int x, int y) {
     if (!elem || !elem->visible || !elem->enabled) return false;
     
@@ -177,7 +164,6 @@ bool titlebar_element_contains(struct titlebar_element *elem, int x, int y) {
             y >= elem->y && y < elem->y + elem->height);
 }
 
-// Auto-layout helper: arrange elements horizontally
 void titlebar_layout_horizontal(
     struct titlebar *titlebar,
     struct titlebar_element **elements,
@@ -195,7 +181,6 @@ void titlebar_layout_horizontal(
     }
 }
 
-// Auto-layout helper: arrange elements vertically
 void titlebar_layout_vertical(
     struct titlebar *titlebar,
     struct titlebar_element **elements,
@@ -213,7 +198,6 @@ void titlebar_layout_vertical(
     }
 }
 
-// Layout helper: right-align elements
 void titlebar_layout_right_align(
     struct titlebar *titlebar,
     struct titlebar_element **elements,
@@ -237,7 +221,6 @@ void titlebar_layout_right_align(
     }
 }
 
-// Layout helper: center elements
 void titlebar_layout_center(
     struct titlebar *titlebar,
     struct titlebar_element **elements,
@@ -261,7 +244,6 @@ void titlebar_layout_center(
     }
 }
 
-// Find element at position
 struct titlebar_element *titlebar_element_at(
     struct titlebar *titlebar,
     int x, int y) {
@@ -278,7 +260,6 @@ struct titlebar_element *titlebar_element_at(
     return NULL;
 }
 
-// Handle element click
 void titlebar_element_click(struct titlebar_element *elem, struct toplevel *toplevel) {
     if (!elem || !elem->enabled) return;
     
@@ -287,11 +268,9 @@ void titlebar_element_click(struct titlebar_element *elem, struct toplevel *topl
     }
 }
 
-// Preset layouts
 void titlebar_apply_preset_windows(struct titlebar *titlebar) {
     if (!titlebar) return;
     
-    // Clear existing elements
     for (int i = 0; i < titlebar->element_count; i++) {
         if (titlebar->elements[i] && titlebar->elements[i]->rect) {
             wlr_scene_node_destroy(&titlebar->elements[i]->rect->node);
@@ -300,7 +279,6 @@ void titlebar_apply_preset_windows(struct titlebar *titlebar) {
     }
     titlebar->element_count = 0;
     
-    // Create Windows-style buttons (right side)
     int btn_size = config.decor.button_size;
     int spacing = config.decor.button_spacing;
     int x = titlebar->width - spacing - btn_size;
@@ -321,7 +299,6 @@ void titlebar_apply_preset_windows(struct titlebar *titlebar) {
 void titlebar_apply_preset_macos(struct titlebar *titlebar) {
     if (!titlebar) return;
     
-    // Clear existing elements
     for (int i = 0; i < titlebar->element_count; i++) {
         if (titlebar->elements[i] && titlebar->elements[i]->rect) {
             wlr_scene_node_destroy(&titlebar->elements[i]->rect->node);
@@ -330,7 +307,6 @@ void titlebar_apply_preset_macos(struct titlebar *titlebar) {
     }
     titlebar->element_count = 0;
     
-    // Create macOS-style buttons (left side)
     int btn_size = config.decor.button_size;
     int spacing = config.decor.button_spacing;
     int x = spacing;
@@ -351,7 +327,6 @@ void titlebar_apply_preset_macos(struct titlebar *titlebar) {
 void titlebar_apply_preset_minimal(struct titlebar *titlebar) {
     if (!titlebar) return;
     
-    // Clear existing elements
     for (int i = 0; i < titlebar->element_count; i++) {
         if (titlebar->elements[i] && titlebar->elements[i]->rect) {
             wlr_scene_node_destroy(&titlebar->elements[i]->rect->node);
@@ -360,7 +335,6 @@ void titlebar_apply_preset_minimal(struct titlebar *titlebar) {
     }
     titlebar->element_count = 0;
     
-    // Just a close button on the right
     int btn_size = config.decor.button_size;
     int spacing = config.decor.button_spacing;
     int x = titlebar->width - spacing - btn_size;
@@ -370,7 +344,6 @@ void titlebar_apply_preset_minimal(struct titlebar *titlebar) {
         config.decor.btn_close_color, NULL);
 }
 
-// Destroy all elements
 void titlebar_elements_destroy(struct titlebar *titlebar) {
     if (!titlebar) return;
     

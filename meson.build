@@ -34,6 +34,8 @@ src = [
   'src/decor.c',
   'src/anim.c',
   'src/rules.c',
+  'src/util.c',
+  'src/titlebar.c'
 ]
 
 executable('compositor', src, protocol_headers,

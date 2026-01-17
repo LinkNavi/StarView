@@ -46,7 +46,6 @@ struct animation {
     int64_t start_time;
     int duration_ms;
     
-    // Start/end values
     float start_x, start_y;
     float end_x, end_y;
     float start_w, start_h;
@@ -56,7 +55,6 @@ struct animation {
     float start_scale;
     float end_scale;
     
-    // Callback when done
     void (*on_complete)(void *data);
     void *data;
 };
@@ -78,6 +76,44 @@ enum decor_hit {
     HIT_RESIZE_TOP_RIGHT,
     HIT_RESIZE_BOTTOM_LEFT,
     HIT_RESIZE_BOTTOM_RIGHT,
+};
+
+/*
+ * TITLEBAR ELEMENT TYPES
+ */
+enum titlebar_element_type {
+    TITLEBAR_BUTTON,
+    TITLEBAR_LABEL,
+    TITLEBAR_INDICATOR,
+    TITLEBAR_SPACER,
+    TITLEBAR_CUSTOM,
+};
+
+struct toplevel;
+
+struct titlebar_element {
+    enum titlebar_element_type type;
+    struct wlr_scene_rect *rect;
+    int x, y;
+    int width, height;
+    uint32_t color;
+    char text[128];
+    bool visible;
+    bool enabled;
+    void (*on_click)(struct toplevel *);
+};
+
+struct titlebar {
+    struct wlr_scene_tree *tree;
+    struct wlr_scene_rect *background;
+    int width;
+    
+    struct titlebar_element *btn_close;
+    struct titlebar_element *btn_max;
+    struct titlebar_element *btn_min;
+    
+    struct titlebar_element *elements[32];
+    int element_count;
 };
 
 struct layer_surface {
@@ -129,7 +165,6 @@ struct server {
     struct wl_listener new_input;
     struct wl_listener request_cursor;
     
-    // Scene layers (bottom to top)
     struct wlr_scene_tree *layer_bg;
     struct wlr_scene_tree *layer_bottom;
     struct wlr_scene_tree *layer_windows;
@@ -140,11 +175,9 @@ struct server {
     struct wl_list toplevels;
     struct wl_list keyboards;
     
-    // Window management mode
     enum window_mode mode;
     int current_workspace;
     
-    // Animation timer
     struct wl_event_source *anim_timer;
 };
 
@@ -191,13 +224,9 @@ struct toplevel {
     struct wl_listener request_fullscreen;
     struct wl_listener request_minimize;
     
-    // Decoration
     struct decoration decor;
-    
-    // Animation state
     struct animation anim;
     
-    // Window state
     bool floating;
     bool fullscreen;
     bool minimized;
@@ -205,11 +234,9 @@ struct toplevel {
     int workspace;
     float opacity;
     
-    // Saved geometry for mode switching / maximize
     int saved_x, saved_y;
     int saved_width, saved_height;
     
-    // Pre-maximize geometry
     int pre_max_x, pre_max_y;
     int pre_max_width, pre_max_height;
 };
@@ -265,8 +292,118 @@ void anim_update(struct server *server);
 bool anim_is_active(struct toplevel *toplevel);
 float anim_ease(float t, enum anim_curve curve);
 int64_t get_time_ms(void);
+void anim_schedule_update(struct server *server);
 
 /* rules.c */
 void apply_window_rules(struct toplevel *toplevel);
+
+/* titlebar.c */
+struct titlebar_element *titlebar_element_create(
+    struct titlebar *titlebar, 
+    enum titlebar_element_type type,
+    int x, int y, int width, int height,
+    uint32_t color);
+
+struct titlebar_element *titlebar_button_create(
+    struct titlebar *titlebar,
+    int x, int y,
+    uint32_t color,
+    void (*on_click)(struct toplevel *));
+
+struct titlebar_element *titlebar_label_create(
+    struct titlebar *titlebar,
+    int x, int y,
+    int width,
+    const char *text,
+    uint32_t color);
+
+struct titlebar_element *titlebar_indicator_create(
+    struct titlebar *titlebar,
+    int x, int y,
+    int size,
+    uint32_t color);
+
+struct titlebar_element *titlebar_spacer_create(
+    struct titlebar *titlebar,
+    int x, int y,
+    int width);
+
+void titlebar_element_set_position(struct titlebar_element *elem, int x, int y);
+void titlebar_element_set_size(struct titlebar_element *elem, int width, int height);
+void titlebar_element_set_color(struct titlebar_element *elem, uint32_t color);
+void titlebar_element_set_visible(struct titlebar_element *elem, bool visible);
+void titlebar_element_set_text(struct titlebar_element *elem, const char *text);
+bool titlebar_element_contains(struct titlebar_element *elem, int x, int y);
+
+void titlebar_layout_horizontal(struct titlebar *titlebar, struct titlebar_element **elements, 
+                                 int count, int start_x, int spacing);
+void titlebar_layout_vertical(struct titlebar *titlebar, struct titlebar_element **elements,
+                               int count, int start_y, int spacing);
+void titlebar_layout_right_align(struct titlebar *titlebar, struct titlebar_element **elements,
+                                  int count, int spacing);
+void titlebar_layout_center(struct titlebar *titlebar, struct titlebar_element **elements,
+                             int count, int spacing);
+
+struct titlebar_element *titlebar_element_at(struct titlebar *titlebar, int x, int y);
+void titlebar_element_click(struct titlebar_element *elem, struct toplevel *toplevel);
+
+void titlebar_apply_preset_windows(struct titlebar *titlebar);
+void titlebar_apply_preset_macos(struct titlebar *titlebar);
+void titlebar_apply_preset_minimal(struct titlebar *titlebar);
+void titlebar_elements_destroy(struct titlebar *titlebar);
+
+/* util.c - Geometry helpers */
+struct wlr_box toplevel_get_geometry(struct toplevel *toplevel);
+void toplevel_set_geometry(struct toplevel *toplevel, struct wlr_box geo);
+bool toplevel_contains_point(struct toplevel *toplevel, int x, int y);
+struct wlr_box box_intersection(struct wlr_box a, struct wlr_box b);
+bool box_overlaps(struct wlr_box a, struct wlr_box b);
+
+/* util.c - Output helpers */
+struct output *output_at(struct server *server, int x, int y);
+struct output *output_get_primary(struct server *server);
+struct wlr_box output_get_usable_area(struct output *output);
+
+/* util.c - Toplevel collection helpers */
+int server_count_toplevels(struct server *server, int workspace);
+int server_count_visible_toplevels(struct server *server);
+struct toplevel *server_find_toplevel_by_app_id(struct server *server, const char *app_id);
+struct toplevel *server_find_toplevel_by_title(struct server *server, const char *title);
+
+/* util.c - Workspace helpers */
+void workspace_show(struct server *server, int workspace);
+void workspace_move_toplevel(struct toplevel *toplevel, int workspace);
+bool workspace_is_empty(struct server *server, int workspace);
+
+/* util.c - Focus helpers */
+struct toplevel *focus_get_next(struct server *server, struct toplevel *current);
+struct toplevel *focus_get_prev(struct server *server, struct toplevel *current);
+struct toplevel *focus_find_urgent(struct server *server);
+
+/* util.c - Animation helpers */
+void toplevel_animate_move(struct toplevel *toplevel, int x, int y);
+void toplevel_animate_resize(struct toplevel *toplevel, int width, int height);
+void toplevel_animate_fade_in(struct toplevel *toplevel);
+void toplevel_animate_fade_out(struct toplevel *toplevel, void (*on_complete)(void *), void *data);
+
+/* util.c - Color helpers */
+uint32_t color_lerp(uint32_t a, uint32_t b, float t);
+uint32_t color_brighten(uint32_t color, float amount);
+uint32_t color_darken(uint32_t color, float amount);
+
+/* util.c - String helpers */
+char *string_copy(const char *str);
+bool string_starts_with(const char *str, const char *prefix);
+bool string_ends_with(const char *str, const char *suffix);
+
+/* util.c - Math helpers */
+int clamp_int(int value, int min, int max);
+float clamp_float(float value, float min, float max);
+float lerp_float(float a, float b, float t);
+int lerp_int(int a, int b, float t);
+
+/* util.c - Timer helpers */
+void *timer_schedule(struct server *server, int ms, void (*callback)(void *), void *data);
+void timer_cancel(void *timer_handle);
 
 #endif
