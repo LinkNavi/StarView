@@ -44,7 +44,7 @@ cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
 [decoration]
 enabled = true
 height = 30
-button_size = 12
+button_size = 24
 button_spacing = 8
 corner_radius = 8
 
