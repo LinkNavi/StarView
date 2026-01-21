@@ -24,38 +24,35 @@ static void arrange_layer(struct wlr_output *output, struct wlr_scene_tree *laye
 
 static void layer_surface_map(struct wl_listener *listener, void *data) {
     struct layer_surface *layer = wl_container_of(listener, layer, map);
-    wlr_scene_node_set_enabled(&layer->scene_tree->node, true);
     
-    printf("Layer surface mapped: %s\n", layer->wlr_layer->namespace);
+    printf("Layer MAPPED: %s anchor=%d exclusive=%d size=%dx%d\n",
+           layer->wlr_layer->namespace,
+           layer->wlr_layer->current.anchor,
+           layer->wlr_layer->current.exclusive_zone,
+           layer->wlr_layer->surface->current.width,
+           layer->wlr_layer->surface->current.height);
 }
 
 static void layer_surface_unmap(struct wl_listener *listener, void *data) {
     struct layer_surface *layer = wl_container_of(listener, layer, unmap);
-    wlr_scene_node_set_enabled(&layer->scene_tree->node, false);
-    
-    printf("Layer surface unmapped: %s\n", layer->wlr_layer->namespace);
+    printf("Layer unmapped: %s\n", layer->wlr_layer->namespace);
 }
 
 static void layer_surface_commit(struct wl_listener *listener, void *data) {
     struct layer_surface *layer = wl_container_of(listener, layer, commit);
-    struct wlr_layer_surface_v1 *wlr_layer = layer->wlr_layer;
     
-    if (!wlr_layer->surface->mapped) {
-        return;
-    }
-    
-    printf("Layer surface commit: %s size=%dx%d exclusive=%d anchor=%d\n",
-           wlr_layer->namespace,
-           wlr_layer->surface->current.width,
-           wlr_layer->surface->current.height,
-           wlr_layer->current.exclusive_zone,
-           wlr_layer->current.anchor);
+    // This is key - log EVERY commit to see state changes
+    printf("Layer COMMIT: %s anchor=%d->%d exclusive=%d->%d\n",
+           layer->wlr_layer->namespace,
+           layer->wlr_layer->current.anchor,
+           layer->wlr_layer->pending.anchor,
+           layer->wlr_layer->current.exclusive_zone,
+           layer->wlr_layer->pending.exclusive_zone);
 }
 
 static void layer_surface_destroy(struct wl_listener *listener, void *data) {
     struct layer_surface *layer = wl_container_of(listener, layer, destroy);
-    
-    printf("Layer surface destroyed: %s\n", layer->wlr_layer->namespace);
+    printf("Layer destroyed: %s\n", layer->wlr_layer->namespace);
     
     wl_list_remove(&layer->map.link);
     wl_list_remove(&layer->unmap.link);
@@ -70,41 +67,30 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
 
     printf("\n=== NEW LAYER SURFACE ===\n");
     printf("Namespace: %s\n", wlr_layer->namespace);
-    printf("Layer: %d (0=BG, 1=BOTTOM, 2=TOP, 3=OVERLAY)\n", wlr_layer->pending.layer);
-    printf("Exclusive zone: %d\n", wlr_layer->pending.exclusive_zone);
-    printf("Desired size: %dx%d\n", 
-           wlr_layer->pending.desired_width, 
+    printf("Layer: %d\n", wlr_layer->pending.layer);
+    printf("Pending state: anchor=%d exclusive=%d size=%dx%d\n",
+           wlr_layer->pending.anchor,
+           wlr_layer->pending.exclusive_zone,
+           wlr_layer->pending.desired_width,
            wlr_layer->pending.desired_height);
-    printf("Anchors: %d (1=TOP, 2=BOTTOM, 4=LEFT, 8=RIGHT)\n", wlr_layer->pending.anchor);
-    printf("Margins: T=%d R=%d B=%d L=%d\n",
-           wlr_layer->pending.margin.top,
-           wlr_layer->pending.margin.right,
-           wlr_layer->pending.margin.bottom,
-           wlr_layer->pending.margin.left);
 
-    // If no output specified, use the first available output
+    // Auto-assign output if not specified
     if (!wlr_layer->output) {
         struct output *output;
         wl_list_for_each(output, &server->outputs, link) {
             wlr_layer->output = output->wlr_output;
-            printf("Auto-assigned to output: %s\n", output->wlr_output->name);
+            printf("Assigned to output: %s\n", output->wlr_output->name);
             break;
         }
     }
     
     if (!wlr_layer->output) {
-        printf("ERROR: No output available for layer surface!\n");
+        printf("ERROR: No output!\n");
         wlr_layer_surface_v1_destroy(wlr_layer);
         return;
     }
 
-    printf("Output: %s (%dx%d)\n", 
-           wlr_layer->output->name,
-           wlr_layer->output->width,
-           wlr_layer->output->height);
-    printf("========================\n\n");
-
-    // Allocate layer surface state
+    // Allocate state
     struct layer_surface *layer = calloc(1, sizeof(*layer));
     if (!layer) {
         wlr_layer_surface_v1_destroy(wlr_layer);
@@ -113,33 +99,28 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     
     layer->server = server;
     layer->wlr_layer = wlr_layer;
+    wlr_layer->data = layer;
 
-    // Choose the correct scene tree based on layer
+    // Choose parent tree
     struct wlr_scene_tree *parent;
     switch (wlr_layer->pending.layer) {
     case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
         parent = server->layer_bg;
-        printf("-> Assigned to BACKGROUND layer\n");
         break;
     case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
         parent = server->layer_bottom;
-        printf("-> Assigned to BOTTOM layer\n");
         break;
     case ZWLR_LAYER_SHELL_V1_LAYER_TOP:
         parent = server->layer_top;
-        printf("-> Assigned to TOP layer\n");
         break;
     case ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY:
         parent = server->layer_overlay;
-        printf("-> Assigned to OVERLAY layer\n");
         break;
     default:
         parent = server->layer_top;
-        printf("-> Defaulted to TOP layer\n");
     }
 
-    // CRITICAL: Create the scene layer surface
-    // This function handles ALL the layout logic automatically
+    // CRITICAL: This should handle everything automatically
     struct wlr_scene_layer_surface_v1 *scene_layer =
         wlr_scene_layer_surface_v1_create(parent, wlr_layer);
     
@@ -151,9 +132,8 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     }
     
     layer->scene_tree = scene_layer->tree;
-    wlr_layer->data = layer;
 
-    // Connect event listeners
+    // Connect listeners
     layer->map.notify = layer_surface_map;
     wl_signal_add(&wlr_layer->surface->events.map, &layer->map);
 
@@ -166,7 +146,8 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     layer->destroy.notify = layer_surface_destroy;
     wl_signal_add(&wlr_layer->events.destroy, &layer->destroy);
 
-    printf("Scene layer surface created successfully\n\n");
+    printf("Scene layer created, waiting for configure...\n");
+    printf("=========================\n\n");
 }
 static void output_request_state(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, request_state);

@@ -112,7 +112,8 @@ struct layer_surface {
   struct wlr_layer_surface_v1 *wlr_layer;
   struct wlr_scene_tree *scene_tree;
   struct wl_listener map;
-struct wl_listener commit; 
+  struct wl_listener commit;
+  struct wlr_scene_layer_surface_v1 *scene_layer;
   struct wl_listener unmap;
   struct wl_listener destroy;
 };
