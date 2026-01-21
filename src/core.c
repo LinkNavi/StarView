@@ -17,7 +17,157 @@ static void output_frame(struct wl_listener *listener, void *data) {
   clock_gettime(CLOCK_MONOTONIC, &now);
   wlr_scene_output_send_frame_done(output->scene_output, &now);
 }
+static void arrange_layer(struct wlr_output *output, struct wlr_scene_tree *layer) {
+    // wlr_scene_layer_surface_v1 handles arrangement automatically
+    // We just need to ensure the output dimensions are set correctly
+}
 
+static void layer_surface_map(struct wl_listener *listener, void *data) {
+    struct layer_surface *layer = wl_container_of(listener, layer, map);
+    wlr_scene_node_set_enabled(&layer->scene_tree->node, true);
+    
+    printf("Layer surface mapped: %s\n", layer->wlr_layer->namespace);
+}
+
+static void layer_surface_unmap(struct wl_listener *listener, void *data) {
+    struct layer_surface *layer = wl_container_of(listener, layer, unmap);
+    wlr_scene_node_set_enabled(&layer->scene_tree->node, false);
+    
+    printf("Layer surface unmapped: %s\n", layer->wlr_layer->namespace);
+}
+
+static void layer_surface_commit(struct wl_listener *listener, void *data) {
+    struct layer_surface *layer = wl_container_of(listener, layer, commit);
+    struct wlr_layer_surface_v1 *wlr_layer = layer->wlr_layer;
+    
+    if (!wlr_layer->surface->mapped) {
+        return;
+    }
+    
+    printf("Layer surface commit: %s size=%dx%d exclusive=%d anchor=%d\n",
+           wlr_layer->namespace,
+           wlr_layer->surface->current.width,
+           wlr_layer->surface->current.height,
+           wlr_layer->current.exclusive_zone,
+           wlr_layer->current.anchor);
+}
+
+static void layer_surface_destroy(struct wl_listener *listener, void *data) {
+    struct layer_surface *layer = wl_container_of(listener, layer, destroy);
+    
+    printf("Layer surface destroyed: %s\n", layer->wlr_layer->namespace);
+    
+    wl_list_remove(&layer->map.link);
+    wl_list_remove(&layer->unmap.link);
+    wl_list_remove(&layer->commit.link);
+    wl_list_remove(&layer->destroy.link);
+    free(layer);
+}
+
+void server_new_layer_surface(struct wl_listener *listener, void *data) {
+    struct server *server = wl_container_of(listener, server, new_layer_surface);
+    struct wlr_layer_surface_v1 *wlr_layer = data;
+
+    printf("\n=== NEW LAYER SURFACE ===\n");
+    printf("Namespace: %s\n", wlr_layer->namespace);
+    printf("Layer: %d (0=BG, 1=BOTTOM, 2=TOP, 3=OVERLAY)\n", wlr_layer->pending.layer);
+    printf("Exclusive zone: %d\n", wlr_layer->pending.exclusive_zone);
+    printf("Desired size: %dx%d\n", 
+           wlr_layer->pending.desired_width, 
+           wlr_layer->pending.desired_height);
+    printf("Anchors: %d (1=TOP, 2=BOTTOM, 4=LEFT, 8=RIGHT)\n", wlr_layer->pending.anchor);
+    printf("Margins: T=%d R=%d B=%d L=%d\n",
+           wlr_layer->pending.margin.top,
+           wlr_layer->pending.margin.right,
+           wlr_layer->pending.margin.bottom,
+           wlr_layer->pending.margin.left);
+
+    // If no output specified, use the first available output
+    if (!wlr_layer->output) {
+        struct output *output;
+        wl_list_for_each(output, &server->outputs, link) {
+            wlr_layer->output = output->wlr_output;
+            printf("Auto-assigned to output: %s\n", output->wlr_output->name);
+            break;
+        }
+    }
+    
+    if (!wlr_layer->output) {
+        printf("ERROR: No output available for layer surface!\n");
+        wlr_layer_surface_v1_destroy(wlr_layer);
+        return;
+    }
+
+    printf("Output: %s (%dx%d)\n", 
+           wlr_layer->output->name,
+           wlr_layer->output->width,
+           wlr_layer->output->height);
+    printf("========================\n\n");
+
+    // Allocate layer surface state
+    struct layer_surface *layer = calloc(1, sizeof(*layer));
+    if (!layer) {
+        wlr_layer_surface_v1_destroy(wlr_layer);
+        return;
+    }
+    
+    layer->server = server;
+    layer->wlr_layer = wlr_layer;
+
+    // Choose the correct scene tree based on layer
+    struct wlr_scene_tree *parent;
+    switch (wlr_layer->pending.layer) {
+    case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
+        parent = server->layer_bg;
+        printf("-> Assigned to BACKGROUND layer\n");
+        break;
+    case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
+        parent = server->layer_bottom;
+        printf("-> Assigned to BOTTOM layer\n");
+        break;
+    case ZWLR_LAYER_SHELL_V1_LAYER_TOP:
+        parent = server->layer_top;
+        printf("-> Assigned to TOP layer\n");
+        break;
+    case ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY:
+        parent = server->layer_overlay;
+        printf("-> Assigned to OVERLAY layer\n");
+        break;
+    default:
+        parent = server->layer_top;
+        printf("-> Defaulted to TOP layer\n");
+    }
+
+    // CRITICAL: Create the scene layer surface
+    // This function handles ALL the layout logic automatically
+    struct wlr_scene_layer_surface_v1 *scene_layer =
+        wlr_scene_layer_surface_v1_create(parent, wlr_layer);
+    
+    if (!scene_layer) {
+        printf("ERROR: Failed to create scene layer surface!\n");
+        free(layer);
+        wlr_layer_surface_v1_destroy(wlr_layer);
+        return;
+    }
+    
+    layer->scene_tree = scene_layer->tree;
+    wlr_layer->data = layer;
+
+    // Connect event listeners
+    layer->map.notify = layer_surface_map;
+    wl_signal_add(&wlr_layer->surface->events.map, &layer->map);
+
+    layer->unmap.notify = layer_surface_unmap;
+    wl_signal_add(&wlr_layer->surface->events.unmap, &layer->unmap);
+
+    layer->commit.notify = layer_surface_commit;
+    wl_signal_add(&wlr_layer->surface->events.commit, &layer->commit);
+
+    layer->destroy.notify = layer_surface_destroy;
+    wl_signal_add(&wlr_layer->events.destroy, &layer->destroy);
+
+    printf("Scene layer surface created successfully\n\n");
+}
 static void output_request_state(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, request_state);
   struct wlr_output_event_request_state *event = data;
@@ -32,7 +182,6 @@ static void output_destroy(struct wl_listener *listener, void *data) {
   wl_list_remove(&output->link);
   free(output);
 }
-
 void server_new_output(struct wl_listener *listener, void *data) {
   struct server *server = wl_container_of(listener, server, new_output);
   struct wlr_output *wlr_output = data;
@@ -271,76 +420,6 @@ static void keyboard_key(struct wl_listener *listener, void *data) {
   }
 }
 
-// core.c - layer surface handler
-static void layer_surface_map(struct wl_listener *listener, void *data) {
-  struct layer_surface *layer = wl_container_of(listener, layer, map);
-  wlr_scene_node_set_enabled(&layer->scene_tree->node, true);
-}
-
-static void layer_surface_unmap(struct wl_listener *listener, void *data) {
-  struct layer_surface *layer = wl_container_of(listener, layer, unmap);
-  wlr_scene_node_set_enabled(&layer->scene_tree->node, false);
-}
-
-static void layer_surface_destroy(struct wl_listener *listener, void *data) {
-  struct layer_surface *layer = wl_container_of(listener, layer, destroy);
-  wl_list_remove(&layer->map.link);
-  wl_list_remove(&layer->unmap.link);
-  wl_list_remove(&layer->destroy.link);
-  free(layer);
-}
-void server_new_layer_surface(struct wl_listener *listener, void *data) {
-  struct server *server = wl_container_of(listener, server, new_layer_surface);
-  struct wlr_layer_surface_v1 *wlr_layer = data;
-
-  struct layer_surface *layer = calloc(1, sizeof(*layer));
-  layer->server = server;
-  layer->wlr_layer = wlr_layer;
-
-  struct wlr_scene_tree *parent;
-  switch (wlr_layer->pending.layer) {
-  case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
-    parent = server->layer_bg;
-    break;
-  case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
-    parent = server->layer_bottom;
-    break;
-  case ZWLR_LAYER_SHELL_V1_LAYER_TOP:
-    parent = server->layer_top;
-    break;
-  case ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY:
-    parent = server->layer_overlay;
-    break;
-  default:
-    parent = server->layer_top;
-  }
-
-  struct wlr_scene_layer_surface_v1 *scene_layer =
-      wlr_scene_layer_surface_v1_create(parent, wlr_layer);
-  layer->scene_tree = scene_layer->tree;
-  wlr_layer->data = layer;
-
-  layer->map.notify = layer_surface_map;
-  wl_signal_add(&wlr_layer->surface->events.map, &layer->map);
-
-  layer->unmap.notify = layer_surface_unmap;
-  wl_signal_add(&wlr_layer->surface->events.unmap, &layer->unmap);
-
-  layer->destroy.notify = layer_surface_destroy;
-  wl_signal_add(&wlr_layer->events.destroy, &layer->destroy);
-
-  struct wlr_output *output = wlr_layer->output;
-  if (!output) {
-    struct output *o;
-    wl_list_for_each(o, &server->outputs, link) {
-      output = o->wlr_output;
-      break;
-    }
-  }
-  if (output) {
-    wlr_layer_surface_v1_configure(wlr_layer, output->width, output->height);
-  }
-}
 static void keyboard_modifiers(struct wl_listener *listener, void *data) {
   struct keyboard *keyboard = wl_container_of(listener, keyboard, modifiers);
   wlr_seat_set_keyboard(keyboard->server->seat, keyboard->wlr_keyboard);
