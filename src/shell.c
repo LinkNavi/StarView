@@ -33,7 +33,7 @@ static void tile_output(struct server *server, struct output *output) {
     int outer = config.gaps_outer;
     int master_count = config.master_count;
     float master_ratio = config.master_ratio;
-    
+     printf("tile_output: count=%d workspace=%d\n", count, server->current_workspace);
     // Calculate decoration height ONCE
     int decor_h = config.decor.enabled ? config.decor.height : 0;
     
@@ -47,7 +47,7 @@ static void tile_output(struct server *server, struct output *output) {
     int master_i = 0;
     int stack_i = 0;
     int stack_count = count > master_count ? count - master_count : 0;
-    
+
     wl_list_for_each(toplevel, &server->toplevels, link) {
         if (toplevel->floating || toplevel->fullscreen ||
             toplevel->workspace != server->current_workspace) {
@@ -103,7 +103,12 @@ static void tile_output(struct server *server, struct output *output) {
                 &toplevel->decor.tree->node : &toplevel->scene_tree->node;
             wlr_scene_node_set_position(node, x, y);
             wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, w, content_h);
+printf("tile: %s node->x=%d node->y=%d\n", 
+    toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "unknown",
+    node->x, node->y);
         }
+
+    printf("tile: window at x=%d y=%d w=%d h=%d\n", x, y, w, content_h);
     }
 }
 
@@ -228,7 +233,6 @@ static struct toplevel *get_toplevel_in_direction(struct server *server,
  * TOPLEVEL HANDLERS
  * ============================================================================
  */
-
 static void toplevel_map(struct wl_listener *listener, void *data) {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, map);
     struct server *server = toplevel->server;
@@ -237,38 +241,33 @@ static void toplevel_map(struct wl_listener *listener, void *data) {
     toplevel->workspace = server->current_workspace;
     toplevel->opacity = 1.0f;
     
+    if (server->mode == MODE_FLOATING) {
+        toplevel->floating = true;
+    }
+    
     if (config.decor.enabled) {
         decor_create(toplevel);
-        
-        struct wlr_box geo;
-        wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
-        decor_set_size(toplevel, geo.width > 0 ? geo.width : 800);
-        decor_update(toplevel, true);
     }
     
     apply_window_rules(toplevel);
     
-    if (server->mode == MODE_FLOATING || toplevel->floating) {
+    // Always arrange in tiling mode
+    if (!toplevel->floating) {
+        arrange_windows(server);
+    } else {
+        // Center floating
         struct output *output;
         wl_list_for_each(output, &server->outputs, link) {
-            struct wlr_box geo;
-            wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
-            int x = (output->wlr_output->width - geo.width) / 2;
-            int y = (output->wlr_output->height - geo.height) / 2;
-            
-            if (config.anim.enabled && config.anim.window_open != ANIM_NONE) {
-                anim_start(toplevel, config.anim.window_open, x, y, 
-                          geo.width, geo.height, NULL, NULL);
-                anim_schedule_update(server);
-            } else {
-                struct wlr_scene_node *node = toplevel->decor.tree ?
-                    &toplevel->decor.tree->node : &toplevel->scene_tree->node;
-                wlr_scene_node_set_position(node, x, y);
+            int x = (output->wlr_output->width - 800) / 2;
+            int y = (output->wlr_output->height - 600) / 2;
+            struct wlr_scene_node *node = toplevel->decor.tree ?
+                &toplevel->decor.tree->node : &toplevel->scene_tree->node;
+            wlr_scene_node_set_position(node, x, y);
+            if (config.decor.enabled && toplevel->decor.tree) {
+                decor_set_size(toplevel, 800);
             }
             break;
         }
-    } else {
-        arrange_windows(server);
     }
     
     focus_toplevel(toplevel);
@@ -278,18 +277,24 @@ static void toplevel_unmap(struct wl_listener *listener, void *data) {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     struct server *server = toplevel->server;
     
+    // Remove from list FIRST
     wl_list_remove(&toplevel->link);
+    wl_list_init(&toplevel->link);  // Prevent double-remove
     
     if (cursor_state.toplevel == toplevel) {
         cursor_state.mode = CURSOR_NORMAL;
         cursor_state.toplevel = NULL;
     }
     
+    // Now arrange - the window is no longer in the list
     arrange_windows(server);
     
+    // Focus next
     if (!wl_list_empty(&server->toplevels)) {
         struct toplevel *next = wl_container_of(server->toplevels.next, next, link);
-        focus_toplevel(next);
+        if (next->workspace == server->current_workspace) {
+            focus_toplevel(next);
+        }
     }
 }
 
