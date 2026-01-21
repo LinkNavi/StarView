@@ -3,8 +3,24 @@
 
 #include "core.h"
 #include "config.h"
+#include "titlebar_render.h"
 #include <stdlib.h>
+#include <string.h>
 #include <wlr/types/wlr_scene.h>
+
+/* Global theme instance */
+static struct titlebar_theme *g_theme = NULL;
+
+static void ensure_theme_initialized(void) {
+    if (g_theme) return;
+    
+    g_theme = titlebar_theme_create();
+    if (g_theme) {
+        /* Load theme based on config - you can change this */
+        titlebar_theme_load_preset(g_theme, THEME_PRESET_DEFAULT);
+        titlebar_set_global_theme(g_theme);
+    }
+}
 
 static void color_to_float(uint32_t color, float out[4]) {
     out[0] = ((color >> 24) & 0xff) / 255.0f;
@@ -16,47 +32,24 @@ static void color_to_float(uint32_t color, float out[4]) {
 void decor_create(struct toplevel *toplevel) {
     if (!config.decor.enabled) return;
     
+    ensure_theme_initialized();
+    
     struct server *server = toplevel->server;
     struct decoration *d = &toplevel->decor;
     
-    // Create decoration tree as parent of window
+    /* Create decoration tree as parent of window */
     d->tree = wlr_scene_tree_create(server->layer_windows);
     if (!d->tree) return;
     
-    float bg[4], close[4], max[4], min[4];
-    color_to_float(config.decor.bg_color, bg);
-    color_to_float(config.decor.btn_close_color, close);
-    color_to_float(config.decor.btn_max_color, max);
-    color_to_float(config.decor.btn_min_color, min);
-    
-    int h = config.decor.height;
-    int btn_size = config.decor.button_size;
-    int btn_spacing = config.decor.button_spacing;
+    int h = g_theme ? g_theme->height : config.decor.height;
     int bw = config.border_width;
     
-    // Titlebar
-    d->titlebar = wlr_scene_rect_create(d->tree, 100, h, bg);
-    wlr_scene_node_set_position(&d->titlebar->node, 0, 0);
-    
-    // Buttons
-    if (config.decor.buttons_left) {
-        // macOS style: close, minimize, maximize on left
-        d->btn_close = wlr_scene_rect_create(d->tree, btn_size, btn_size, close);
-        wlr_scene_node_set_position(&d->btn_close->node, btn_spacing, (h - btn_size) / 2);
-        
-        d->btn_min = wlr_scene_rect_create(d->tree, btn_size, btn_size, min);
-        wlr_scene_node_set_position(&d->btn_min->node, btn_spacing * 2 + btn_size, (h - btn_size) / 2);
-        
-        d->btn_max = wlr_scene_rect_create(d->tree, btn_size, btn_size, max);
-        wlr_scene_node_set_position(&d->btn_max->node, btn_spacing * 3 + btn_size * 2, (h - btn_size) / 2);
-    } else {
-        // Windows style: minimize, maximize, close on right (positioned later in set_size)
-        d->btn_min = wlr_scene_rect_create(d->tree, btn_size, btn_size, min);
-        d->btn_max = wlr_scene_rect_create(d->tree, btn_size, btn_size, max);
-        d->btn_close = wlr_scene_rect_create(d->tree, btn_size, btn_size, close);
+    /* Create Cairo-rendered titlebar */
+    if (g_theme) {
+        d->rendered_titlebar = titlebar_render_create(d->tree, g_theme);
     }
     
-    // Borders
+    /* Create borders using scene rects (simpler than Cairo for solid colors) */
     float border_color[4];
     color_to_float(config.border_color_active, border_color);
     
@@ -65,7 +58,7 @@ void decor_create(struct toplevel *toplevel) {
     d->border_left = wlr_scene_rect_create(d->tree, bw, 100, border_color);
     d->border_right = wlr_scene_rect_create(d->tree, bw, 100, border_color);
     
-    // Reparent toplevel scene tree under decoration tree
+    /* Reparent toplevel scene tree under decoration tree */
     wlr_scene_node_reparent(&toplevel->scene_tree->node, d->tree);
     wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, h);
     
@@ -77,33 +70,28 @@ void decor_set_size(struct toplevel *toplevel, int width) {
     
     struct decoration *d = &toplevel->decor;
     
-    int h = config.decor.height;
-    int btn_size = config.decor.button_size;
-    int btn_spacing = config.decor.button_spacing;
+    int h = g_theme ? g_theme->height : config.decor.height;
     int bw = config.border_width;
     
     d->width = width;
     
-    // Resize titlebar
-    wlr_scene_rect_set_size(d->titlebar, width, h);
-    
-    // Position buttons on right side (Windows style)
-    if (!config.decor.buttons_left) {
-        int x = width - btn_spacing - btn_size;
-        wlr_scene_node_set_position(&d->btn_close->node, x, (h - btn_size) / 2);
-        x -= btn_spacing + btn_size;
-        wlr_scene_node_set_position(&d->btn_max->node, x, (h - btn_size) / 2);
-        x -= btn_spacing + btn_size;
-        wlr_scene_node_set_position(&d->btn_min->node, x, (h - btn_size) / 2);
+    /* Update Cairo titlebar */
+    if (d->rendered_titlebar && g_theme) {
+        const char *title = toplevel->xdg_toplevel->title;
+        if (!title) title = toplevel->xdg_toplevel->app_id;
+        if (!title) title = "Untitled";
+        
+        bool active = (toplevel == get_focused_toplevel(toplevel->server));
+        titlebar_render_update(d->rendered_titlebar, g_theme, width, title, active);
     }
     
-    // Get actual content height
+    /* Get actual content height */
     struct wlr_box geo;
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     int content_height = geo.height > 0 ? geo.height : 100;
     int total_height = h + content_height;
     
-    // Resize borders
+    /* Resize borders */
     wlr_scene_rect_set_size(d->border_top, width + bw * 2, bw);
     wlr_scene_node_set_position(&d->border_top->node, -bw, -bw);
     
@@ -122,16 +110,23 @@ void decor_update(struct toplevel *toplevel, bool focused) {
     
     struct decoration *d = &toplevel->decor;
     
-    float bg[4], border[4];
+    /* Update Cairo titlebar for focus state */
+    if (d->rendered_titlebar && g_theme) {
+        const char *title = toplevel->xdg_toplevel->title;
+        if (!title) title = toplevel->xdg_toplevel->app_id;
+        if (!title) title = "Untitled";
+        
+        titlebar_render_update(d->rendered_titlebar, g_theme, d->width, title, focused);
+    }
+    
+    /* Update border colors */
+    float border[4];
     if (focused) {
-        color_to_float(config.decor.bg_color, bg);
         color_to_float(config.border_color_active, border);
     } else {
-        color_to_float(config.decor.bg_color_inactive, bg);
         color_to_float(config.border_color_inactive, border);
     }
     
-    wlr_scene_rect_set_color(d->titlebar, bg);
     wlr_scene_rect_set_color(d->border_top, border);
     wlr_scene_rect_set_color(d->border_bottom, border);
     wlr_scene_rect_set_color(d->border_left, border);
@@ -140,6 +135,12 @@ void decor_update(struct toplevel *toplevel, bool focused) {
 
 void decor_destroy(struct toplevel *toplevel) {
     if (!toplevel->decor.tree) return;
+    
+    if (toplevel->decor.rendered_titlebar) {
+        titlebar_render_destroy(toplevel->decor.rendered_titlebar);
+        toplevel->decor.rendered_titlebar = NULL;
+    }
+    
     wlr_scene_node_destroy(&toplevel->decor.tree->node);
     toplevel->decor.tree = NULL;
 }
@@ -149,17 +150,15 @@ enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
     
     struct decoration *d = &toplevel->decor;
     
-    // Get decoration position
+    /* Get decoration position */
     int dx = d->tree->node.x;
     int dy = d->tree->node.y;
     
-    // Local coordinates
+    /* Local coordinates */
     double x = lx - dx;
     double y = ly - dy;
     
-    int h = config.decor.height;
-    int btn_size = config.decor.button_size;
-    int btn_spacing = config.decor.button_spacing;
+    int h = g_theme ? g_theme->height : config.decor.height;
     int bw = config.border_width;
     int width = d->width;
     
@@ -167,58 +166,35 @@ enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     int total_height = h + geo.height;
     
-    // Check resize edges first
+    /* Check resize edges first */
     int edge_size = 8;
     
-    // Corners
+    /* Corners */
     if (x < edge_size && y < edge_size) return HIT_RESIZE_TOP_LEFT;
     if (x >= width - edge_size && y < edge_size) return HIT_RESIZE_TOP_RIGHT;
     if (x < edge_size && y >= total_height - edge_size) return HIT_RESIZE_BOTTOM_LEFT;
     if (x >= width - edge_size && y >= total_height - edge_size) return HIT_RESIZE_BOTTOM_RIGHT;
     
-    // Edges
+    /* Edges */
     if (y < bw) return HIT_RESIZE_TOP;
     if (y >= total_height - bw) return HIT_RESIZE_BOTTOM;
     if (x < bw) return HIT_RESIZE_LEFT;
     if (x >= width - bw) return HIT_RESIZE_RIGHT;
     
-    // Titlebar area
-    if (y >= 0 && y < h) {
-        // Check buttons
-        if (config.decor.buttons_left) {
-            // macOS style
-            if (x >= btn_spacing && x < btn_spacing + btn_size &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_CLOSE;
-            }
-            if (x >= btn_spacing * 2 + btn_size && x < btn_spacing * 2 + btn_size * 2 &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_MINIMIZE;
-            }
-            if (x >= btn_spacing * 3 + btn_size * 2 && x < btn_spacing * 3 + btn_size * 3 &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_MAXIMIZE;
-            }
-        } else {
-            // Windows style
-            int bx = width - btn_spacing - btn_size;
-            if (x >= bx && x < bx + btn_size &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_CLOSE;
-            }
-            bx -= btn_spacing + btn_size;
-            if (x >= bx && x < bx + btn_size &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_MAXIMIZE;
-            }
-            bx -= btn_spacing + btn_size;
-            if (x >= bx && x < bx + btn_size &&
-                y >= (h - btn_size) / 2 && y < (h + btn_size) / 2) {
-                return HIT_MINIMIZE;
-            }
-        }
+    /* Titlebar area - use Cairo titlebar hit testing */
+    if (y >= 0 && y < h && d->rendered_titlebar) {
+        enum button_type btn = titlebar_render_hit_test(d->rendered_titlebar, (int)x, (int)y);
         
-        return HIT_TITLEBAR;
+        switch (btn) {
+        case BTN_TYPE_CLOSE:
+            return HIT_CLOSE;
+        case BTN_TYPE_MAXIMIZE:
+            return HIT_MAXIMIZE;
+        case BTN_TYPE_MINIMIZE:
+            return HIT_MINIMIZE;
+        default:
+            return HIT_TITLEBAR;
+        }
     }
     
     return HIT_NONE;
@@ -228,31 +204,72 @@ void decor_update_hover(struct toplevel *toplevel, double lx, double ly) {
     if (!config.decor.enabled || !toplevel->decor.tree) return;
     
     struct decoration *d = &toplevel->decor;
-    enum decor_hit hit = decor_hit_test(toplevel, lx, ly);
     
-    float close_color[4], max_color[4], min_color[4];
+    if (!d->rendered_titlebar) return;
     
-    // Update close button
-    bool close_hover = (hit == HIT_CLOSE);
-    if (close_hover != d->hovered_close) {
-        d->hovered_close = close_hover;
-        color_to_float(close_hover ? config.decor.btn_close_hover : config.decor.btn_close_color, close_color);
-        wlr_scene_rect_set_color(d->btn_close, close_color);
+    /* Get local coordinates */
+    int dx = d->tree->node.x;
+    int dy = d->tree->node.y;
+    int x = (int)(lx - dx);
+    int y = (int)(ly - dy);
+    
+    int h = g_theme ? g_theme->height : config.decor.height;
+    
+    /* Reset all to normal first */
+    enum button_state close_state = BTN_STATE_NORMAL;
+    enum button_state max_state = BTN_STATE_NORMAL;
+    enum button_state min_state = BTN_STATE_NORMAL;
+    
+    /* Check if in titlebar */
+    if (y >= 0 && y < h) {
+        enum button_type btn = titlebar_render_hit_test(d->rendered_titlebar, x, y);
+        
+        switch (btn) {
+        case BTN_TYPE_CLOSE:
+            close_state = BTN_STATE_HOVER;
+            break;
+        case BTN_TYPE_MAXIMIZE:
+            max_state = BTN_STATE_HOVER;
+            break;
+        case BTN_TYPE_MINIMIZE:
+            min_state = BTN_STATE_HOVER;
+            break;
+        default:
+            break;
+        }
     }
     
-    // Update maximize button
-    bool max_hover = (hit == HIT_MAXIMIZE);
-    if (max_hover != d->hovered_max) {
-        d->hovered_max = max_hover;
-        color_to_float(max_hover ? config.decor.btn_max_hover : config.decor.btn_max_color, max_color);
-        wlr_scene_rect_set_color(d->btn_max, max_color);
+    /* Update button states */
+    bool changed = false;
+    if (d->hovered_close != (close_state == BTN_STATE_HOVER)) {
+        d->hovered_close = (close_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_CLOSE, close_state);
+        changed = true;
+    }
+    if (d->hovered_max != (max_state == BTN_STATE_HOVER)) {
+        d->hovered_max = (max_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MAXIMIZE, max_state);
+        changed = true;
+    }
+    if (d->hovered_min != (min_state == BTN_STATE_HOVER)) {
+        d->hovered_min = (min_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MINIMIZE, min_state);
+        changed = true;
     }
     
-    // Update minimize button
-    bool min_hover = (hit == HIT_MINIMIZE);
-    if (min_hover != d->hovered_min) {
-        d->hovered_min = min_hover;
-        color_to_float(min_hover ? config.decor.btn_min_hover : config.decor.btn_min_color, min_color);
-        wlr_scene_rect_set_color(d->btn_min, min_color);
+    (void)changed;
+}
+
+/* Public function to change theme preset at runtime */
+void decor_set_theme_preset(enum theme_preset preset) {
+    ensure_theme_initialized();
+    if (g_theme) {
+        titlebar_theme_load_preset(g_theme, preset);
     }
+}
+
+/* Get current theme for external modification */
+struct titlebar_theme *decor_get_theme(void) {
+    ensure_theme_initialized();
+    return g_theme;
 }

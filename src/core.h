@@ -108,13 +108,14 @@ struct titlebar {
 };
 
 struct layer_surface {
+  struct wl_list link;
   struct server *server;
   struct wlr_layer_surface_v1 *wlr_layer;
   struct wlr_scene_tree *scene_tree;
-  struct wl_listener map;
-  struct wl_listener commit;
   struct wlr_scene_layer_surface_v1 *scene_layer;
+  struct wl_listener map;
   struct wl_listener unmap;
+  struct wl_listener commit;
   struct wl_listener destroy;
 };
 
@@ -167,6 +168,7 @@ struct server {
   struct wl_list outputs;
   struct wl_list toplevels;
   struct wl_list keyboards;
+  struct wl_list layers;  /* list of layer_surface */
 
   enum window_mode mode;
   int current_workspace;
@@ -184,6 +186,8 @@ struct output {
   struct wl_listener destroy;
 };
 
+struct rendered_titlebar;
+
 struct decoration {
   struct wlr_scene_tree *tree;
   struct wlr_scene_rect *titlebar;
@@ -194,6 +198,9 @@ struct decoration {
   struct wlr_scene_rect *border_bottom;
   struct wlr_scene_rect *border_left;
   struct wlr_scene_rect *border_right;
+
+  /* Cairo-rendered titlebar */
+  struct rendered_titlebar *rendered_titlebar;
 
   int width;
   bool hovered_close;
@@ -378,7 +385,7 @@ void toplevel_animate_fade_out(struct toplevel *toplevel,
 
 uint32_t color_lerp(uint32_t a, uint32_t b, float t);
 uint32_t color_brighten(uint32_t color, float amount);
-uint32_t color_darken(uint32_t color, float amount);
+
 
 char *string_copy(const char *str);
 bool string_starts_with(const char *str, const char *prefix);

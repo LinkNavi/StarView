@@ -7,6 +7,10 @@ wayland_protocols = dependency('wayland-protocols')
 xkbcommon = dependency('xkbcommon')
 math = meson.get_compiler('c').find_library('m', required: true)
 json = dependency('json-c')
+cairo = dependency('cairo')
+pangocairo = dependency('pangocairo')
+libdrm = dependency('libdrm')
+
 wl_protocol_dir = wayland_protocols.get_variable('pkgdatadir')
 wayland_scanner = find_program('wayland-scanner')
 
@@ -36,9 +40,10 @@ src = [
   'src/rules.c',
   'src/util.c',
   'src/titlebar.c',
+  'src/titlebar_render.c',
   'src/ipc.c',
 ]
 
 executable('compositor', src, protocol_headers,
-  dependencies: [wlroots, wayland_server, xkbcommon, math, json],
+  dependencies: [wlroots, wayland_server, xkbcommon, math, json, cairo, pangocairo, libdrm],
   include_directories: include_directories('.'))

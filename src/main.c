@@ -2,6 +2,7 @@
 
 #include "core.h"
 #include "config.h"
+#include "ipc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -18,6 +19,7 @@ int main(void) {
     wl_list_init(&server.outputs);
     wl_list_init(&server.toplevels);
     wl_list_init(&server.keyboards);
+    wl_list_init(&server.layers);
     
     server.current_workspace = 1;
 
@@ -104,6 +106,11 @@ int main(void) {
     snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", getenv("HOME"));
     config_load(config_file);
     
+    // Initialize IPC
+    if (ipc_init(&server) < 0) {
+        fprintf(stderr, "Warning: Failed to initialize IPC\n");
+    }
+    
     // Set mode from config
     server.mode = config.default_mode;
 
@@ -139,6 +146,8 @@ int main(void) {
     }
 
     wl_display_run(server.display);
+    
+    ipc_finish(&server);
     wl_display_destroy(server.display);
     return 0;
 }

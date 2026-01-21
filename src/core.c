@@ -5,10 +5,7 @@
 #include <unistd.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
-//#include "config.h"
 
-// Forward declaration (defined in config.h)
-enum keybind_action;
 /* Output handlers */
 static void output_frame(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, frame);
@@ -16,10 +13,6 @@ static void output_frame(struct wl_listener *listener, void *data) {
   struct timespec now;
   clock_gettime(CLOCK_MONOTONIC, &now);
   wlr_scene_output_send_frame_done(output->scene_output, &now);
-}
-static void arrange_layer(struct wlr_output *output, struct wlr_scene_tree *layer) {
-    // wlr_scene_layer_surface_v1 handles arrangement automatically
-    // We just need to ensure the output dimensions are set correctly
 }
 
 static void layer_surface_map(struct wl_listener *listener, void *data) {
@@ -31,6 +24,8 @@ static void layer_surface_map(struct wl_listener *listener, void *data) {
            layer->wlr_layer->current.exclusive_zone,
            layer->wlr_layer->surface->current.width,
            layer->wlr_layer->surface->current.height);
+    
+    wlr_surface_send_enter(layer->wlr_layer->surface, layer->wlr_layer->output);
 }
 
 static void layer_surface_unmap(struct wl_listener *listener, void *data) {
@@ -40,14 +35,17 @@ static void layer_surface_unmap(struct wl_listener *listener, void *data) {
 
 static void layer_surface_commit(struct wl_listener *listener, void *data) {
     struct layer_surface *layer = wl_container_of(listener, layer, commit);
+    struct wlr_output *output = layer->wlr_layer->output;
     
-    // This is key - log EVERY commit to see state changes
-    printf("Layer COMMIT: %s anchor=%d->%d exclusive=%d->%d\n",
-           layer->wlr_layer->namespace,
-           layer->wlr_layer->current.anchor,
-           layer->wlr_layer->pending.anchor,
-           layer->wlr_layer->current.exclusive_zone,
-           layer->wlr_layer->pending.exclusive_zone);
+    if (!output) return;
+    
+    struct wlr_box full_box = { 
+        .x = 0, .y = 0, 
+        .width = output->width, 
+        .height = output->height 
+    };
+    
+    wlr_scene_layer_surface_v1_configure(layer->scene_layer, &full_box, &full_box);
 }
 
 static void layer_surface_destroy(struct wl_listener *listener, void *data) {
@@ -58,6 +56,7 @@ static void layer_surface_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&layer->unmap.link);
     wl_list_remove(&layer->commit.link);
     wl_list_remove(&layer->destroy.link);
+    wl_list_remove(&layer->link);
     free(layer);
 }
 
@@ -68,29 +67,20 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     printf("\n=== NEW LAYER SURFACE ===\n");
     printf("Namespace: %s\n", wlr_layer->namespace);
     printf("Layer: %d\n", wlr_layer->pending.layer);
-    printf("Pending state: anchor=%d exclusive=%d size=%dx%d\n",
-           wlr_layer->pending.anchor,
-           wlr_layer->pending.exclusive_zone,
-           wlr_layer->pending.desired_width,
-           wlr_layer->pending.desired_height);
 
-    // Auto-assign output if not specified
     if (!wlr_layer->output) {
         struct output *output;
         wl_list_for_each(output, &server->outputs, link) {
             wlr_layer->output = output->wlr_output;
-            printf("Assigned to output: %s\n", output->wlr_output->name);
             break;
         }
     }
     
     if (!wlr_layer->output) {
-        printf("ERROR: No output!\n");
         wlr_layer_surface_v1_destroy(wlr_layer);
         return;
     }
 
-    // Allocate state
     struct layer_surface *layer = calloc(1, sizeof(*layer));
     if (!layer) {
         wlr_layer_surface_v1_destroy(wlr_layer);
@@ -101,7 +91,6 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     layer->wlr_layer = wlr_layer;
     wlr_layer->data = layer;
 
-    // Choose parent tree
     struct wlr_scene_tree *parent;
     switch (wlr_layer->pending.layer) {
     case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
@@ -120,20 +109,18 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
         parent = server->layer_top;
     }
 
-    // CRITICAL: This should handle everything automatically
-    struct wlr_scene_layer_surface_v1 *scene_layer =
-        wlr_scene_layer_surface_v1_create(parent, wlr_layer);
+    layer->scene_layer = wlr_scene_layer_surface_v1_create(parent, wlr_layer);
     
-    if (!scene_layer) {
+    if (!layer->scene_layer) {
         printf("ERROR: Failed to create scene layer surface!\n");
         free(layer);
         wlr_layer_surface_v1_destroy(wlr_layer);
         return;
     }
     
-    layer->scene_tree = scene_layer->tree;
+    layer->scene_tree = layer->scene_layer->tree;
+    layer->scene_tree->node.data = layer;
 
-    // Connect listeners
     layer->map.notify = layer_surface_map;
     wl_signal_add(&wlr_layer->surface->events.map, &layer->map);
 
@@ -146,9 +133,11 @@ void server_new_layer_surface(struct wl_listener *listener, void *data) {
     layer->destroy.notify = layer_surface_destroy;
     wl_signal_add(&wlr_layer->events.destroy, &layer->destroy);
 
-    printf("Scene layer created, waiting for configure...\n");
+    wl_list_insert(&server->layers, &layer->link);
+
     printf("=========================\n\n");
 }
+
 static void output_request_state(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, request_state);
   struct wlr_output_event_request_state *event = data;
@@ -163,6 +152,7 @@ static void output_destroy(struct wl_listener *listener, void *data) {
   wl_list_remove(&output->link);
   free(output);
 }
+
 void server_new_output(struct wl_listener *listener, void *data) {
   struct server *server = wl_container_of(listener, server, new_output);
   struct wlr_output *wlr_output = data;
@@ -202,9 +192,55 @@ void server_new_output(struct wl_listener *listener, void *data) {
   wl_list_insert(&server->outputs, &output->link);
 }
 
+/* Find layer surface at coordinates */
+static struct layer_surface *layer_surface_at(struct server *server, 
+                                               double lx, double ly,
+                                               struct wlr_surface **surface,
+                                               double *sx, double *sy) {
+    struct wlr_scene_node *node = wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
+    if (!node || node->type != WLR_SCENE_NODE_BUFFER) {
+        return NULL;
+    }
+    
+    struct wlr_scene_buffer *scene_buffer = wlr_scene_buffer_from_node(node);
+    struct wlr_scene_surface *scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
+    if (!scene_surface) {
+        return NULL;
+    }
+    
+    *surface = scene_surface->surface;
+    
+    struct wlr_scene_tree *tree = node->parent;
+    while (tree) {
+        if (tree->node.data) {
+            struct layer_surface *layer;
+            wl_list_for_each(layer, &server->layers, link) {
+                if (layer->scene_tree == tree) {
+                    return layer;
+                }
+            }
+        }
+        tree = tree->node.parent;
+    }
+    
+    return NULL;
+}
+
 static void process_cursor_motion(struct server *server, uint32_t time) {
     double sx, sy;
     struct wlr_surface *surface = NULL;
+    
+    /* Check layer surfaces first (panels, etc) */
+    struct layer_surface *layer = layer_surface_at(
+        server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
+    
+    if (layer && surface) {
+        wlr_seat_pointer_notify_enter(server->seat, surface, sx, sy);
+        wlr_seat_pointer_notify_motion(server->seat, time, sx, sy);
+        return;
+    }
+    
+    /* Then check toplevels */
     struct toplevel *toplevel = toplevel_at(
         server, server->cursor->x, server->cursor->y, &surface, &sx, &sy);
 
@@ -212,11 +248,9 @@ static void process_cursor_motion(struct server *server, uint32_t time) {
         wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
         wlr_seat_pointer_clear_focus(server->seat);
     } else {
-        // Update decoration hover state
         if (config.decor.enabled) {
             decor_update_hover(toplevel, server->cursor->x, server->cursor->y);
             
-            // Set cursor based on decoration hit test
             enum decor_hit hit = decor_hit_test(toplevel, server->cursor->x, server->cursor->y);
             const char *cursor_name = "default";
             
@@ -237,11 +271,7 @@ static void process_cursor_motion(struct server *server, uint32_t time) {
             case HIT_RESIZE_BOTTOM_LEFT:
                 cursor_name = "nesw-resize";
                 break;
-            case HIT_TITLEBAR:
-                cursor_name = "default";
-                break;
             default:
-                cursor_name = "default";
                 break;
             }
             
@@ -277,10 +307,8 @@ void cursor_motion(struct wl_listener *listener, void *data) {
         int new_width = cursor_state.grab_box.width;
         int new_height = cursor_state.grab_box.height;
         
-        // Apply deltas based on resize edge
         enum decor_hit edge = cursor_state.resize_edges;
         
-        // Horizontal resize
         if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
             edge == HIT_RESIZE_BOTTOM_LEFT) {
             new_x = cursor_state.grab_box.x + dx;
@@ -290,7 +318,6 @@ void cursor_motion(struct wl_listener *listener, void *data) {
             new_width = cursor_state.grab_box.width + dx;
         }
         
-        // Vertical resize
         if (edge == HIT_RESIZE_TOP || edge == HIT_RESIZE_TOP_LEFT || 
             edge == HIT_RESIZE_TOP_RIGHT) {
             new_y = cursor_state.grab_box.y + dy;
@@ -300,7 +327,6 @@ void cursor_motion(struct wl_listener *listener, void *data) {
             new_height = cursor_state.grab_box.height + dy;
         }
         
-        // Enforce minimum size
         if (new_width < 100) {
             new_width = 100;
             if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
@@ -316,7 +342,6 @@ void cursor_motion(struct wl_listener *listener, void *data) {
             }
         }
         
-        // Apply resize
         struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
             &cursor_state.toplevel->decor.tree->node : 
             &cursor_state.toplevel->scene_tree->node;
@@ -332,6 +357,7 @@ void cursor_motion(struct wl_listener *listener, void *data) {
                     event->delta_y);
     process_cursor_motion(server, event->time_msec);
 }
+
 void cursor_motion_abs(struct wl_listener *listener, void *data) {
   struct server *server = wl_container_of(listener, server, cursor_motion_abs);
   struct wlr_pointer_motion_absolute_event *event = data;
@@ -378,15 +404,10 @@ static void keyboard_key(struct wl_listener *listener, void *data) {
   bool handled = false;
 
   if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-    // DEBUG
-    printf("KEY: mods=0x%x keysym=0x%x, checking %d keybinds\n", 
-           mods, nsyms > 0 ? syms[0] : 0, config.keybind_count);
-    
     for (int i = 0; i < nsyms && !handled; i++) {
       for (int k = 0; k < config.keybind_count; k++) {
         struct keybind *kb = &config.keybinds[k];
         if (kb->modifiers == mods && kb->keysym == syms[i]) {
-          printf("MATCH: action=%d arg='%s'\n", kb->action, kb->arg);
           handled = handle_keybind(keyboard->server, kb->action, kb->arg);
           break;
         }
@@ -465,17 +486,13 @@ void server_new_xdg_popup(struct wl_listener *listener, void *data) {
     popup->base->data = wlr_scene_xdg_surface_create(parent_tree, popup->base);
   }
 }
-static void xdg_decoration_commit(struct wl_listener *listener, void *data) {
-  struct wlr_xdg_toplevel_decoration_v1 *decoration = data;
-  wlr_xdg_toplevel_decoration_v1_set_mode(
-      decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
-}
 
 void server_new_xdg_decoration(struct wl_listener *listener, void *data) {
   struct wlr_xdg_toplevel_decoration_v1 *decoration = data;
   wlr_xdg_toplevel_decoration_v1_set_mode(
       decoration, WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
 }
+
 /* Utility */
 struct toplevel *toplevel_at(struct server *server, double lx, double ly,
                              struct wlr_surface **surface, double *sx,
@@ -497,5 +514,16 @@ struct toplevel *toplevel_at(struct server *server, double lx, double ly,
   while (tree && !tree->node.data) {
     tree = tree->node.parent;
   }
-  return tree ? tree->node.data : NULL;
+  if (!tree) return NULL;
+  
+  /* Check it's a toplevel, not a layer surface */
+  struct toplevel *toplevel;
+  wl_list_for_each(toplevel, &server->toplevels, link) {
+      if (toplevel->scene_tree == tree || 
+          (toplevel->decor.tree && toplevel->decor.tree == tree)) {
+          return toplevel;
+      }
+  }
+  
+  return NULL;
 }
