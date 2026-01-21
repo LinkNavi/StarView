@@ -298,9 +298,7 @@ uint32_t color_brighten(uint32_t color, float amount) {
            (uint8_t)(a * 255);
 }
 
-uint32_t color_darken(uint32_t color, float amount) {
-    return color_brighten(color, -amount);
-}
+
 
 // String helpers
 char *string_copy(const char *str) {

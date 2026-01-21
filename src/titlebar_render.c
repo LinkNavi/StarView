@@ -826,7 +826,15 @@ static void render_buttons(struct rendered_titlebar *tb,
     struct button_theme *btns[3];
     enum button_state states[3];
     struct wlr_scene_buffer **scene_btns[3];
-    struct { int *x, *y, *w, *h; } boxes[3];
+    
+    // Define the struct type for boxes
+    struct box_pointers {
+        int *x;
+        int *y;
+        int *w;
+        int *h;
+    };
+    struct box_pointers boxes[3];
     
     if (theme->buttons_left) {
         /* macOS order: close, minimize, maximize */
@@ -839,12 +847,19 @@ static void render_buttons(struct rendered_titlebar *tb,
         scene_btns[0] = &tb->btn_close;
         scene_btns[1] = &tb->btn_minimize;
         scene_btns[2] = &tb->btn_maximize;
-        boxes[0] = (typeof(boxes[0])){ &tb->close_box.x, &tb->close_box.y, 
-                                        &tb->close_box.width, &tb->close_box.height };
-        boxes[1] = (typeof(boxes[1])){ &tb->min_box.x, &tb->min_box.y,
-                                        &tb->min_box.width, &tb->min_box.height };
-        boxes[2] = (typeof(boxes[2])){ &tb->max_box.x, &tb->max_box.y,
-                                        &tb->max_box.width, &tb->max_box.height };
+        
+        boxes[0] = (struct box_pointers){ 
+            &tb->close_box.x, &tb->close_box.y, 
+            &tb->close_box.width, &tb->close_box.height 
+        };
+        boxes[1] = (struct box_pointers){ 
+            &tb->min_box.x, &tb->min_box.y,
+            &tb->min_box.width, &tb->min_box.height 
+        };
+        boxes[2] = (struct box_pointers){ 
+            &tb->max_box.x, &tb->max_box.y,
+            &tb->max_box.width, &tb->max_box.height 
+        };
         x = theme->button_margin;
     } else {
         /* Windows order: minimize, maximize, close (from right) */
@@ -857,12 +872,19 @@ static void render_buttons(struct rendered_titlebar *tb,
         scene_btns[0] = &tb->btn_minimize;
         scene_btns[1] = &tb->btn_maximize;
         scene_btns[2] = &tb->btn_close;
-        boxes[0] = (typeof(boxes[0])){ &tb->min_box.x, &tb->min_box.y,
-                                        &tb->min_box.width, &tb->min_box.height };
-        boxes[1] = (typeof(boxes[1])){ &tb->max_box.x, &tb->max_box.y,
-                                        &tb->max_box.width, &tb->max_box.height };
-        boxes[2] = (typeof(boxes[2])){ &tb->close_box.x, &tb->close_box.y,
-                                        &tb->close_box.width, &tb->close_box.height };
+        
+        boxes[0] = (struct box_pointers){ 
+            &tb->min_box.x, &tb->min_box.y,
+            &tb->min_box.width, &tb->min_box.height 
+        };
+        boxes[1] = (struct box_pointers){ 
+            &tb->max_box.x, &tb->max_box.y,
+            &tb->max_box.width, &tb->max_box.height 
+        };
+        boxes[2] = (struct box_pointers){ 
+            &tb->close_box.x, &tb->close_box.y,
+            &tb->close_box.width, &tb->close_box.height 
+        };
         x = tb->width - theme->button_margin - 
             btns[0]->width - btns[1]->width - btns[2]->width -
             theme->button_spacing * 2;
@@ -914,7 +936,6 @@ static void render_buttons(struct rendered_titlebar *tb,
         wlr_buffer_drop(&buffer->base);
     }
 }
-
 struct rendered_titlebar *titlebar_render_create(struct wlr_scene_tree *parent,
                                                   struct titlebar_theme *theme) {
     struct rendered_titlebar *tb = calloc(1, sizeof(*tb));
