@@ -5,8 +5,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include "ipc.h"
 #include <linux/input-event-codes.h>
-
+#include <wlr/types/wlr_layer_shell_v1.h>
 struct cursor_state cursor_state = {0};
 
 /*
@@ -14,6 +15,7 @@ struct cursor_state cursor_state = {0};
  * WINDOW ARRANGEMENT
  * ============================================================================
  */
+
 
 static void tile_output(struct server *server, struct output *output) {
     int count = 0;
@@ -27,21 +29,70 @@ static void tile_output(struct server *server, struct output *output) {
     
     if (count == 0) return;
     
+    // Get output dimensions
     int width = output->wlr_output->width;
     int height = output->wlr_output->height;
+    
+    // Calculate usable area by accounting for layer shell exclusive zones
+    int top_exclusive = 0;
+    int bottom_exclusive = 0;
+    int left_exclusive = 0;
+    int right_exclusive = 0;
+    
+    // Check all layer surfaces for exclusive zones
+    struct layer_surface *layer;
+    wl_list_for_each(layer, &server->layers, link) {
+        if (layer->wlr_layer->output != output->wlr_output) continue;
+        
+        int zone = layer->wlr_layer->current.exclusive_zone;
+        if (zone <= 0) continue;
+        
+        uint32_t anchor = layer->wlr_layer->current.anchor;
+        
+        // Top anchor (panels like waybar, our panel)
+        if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+            (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+            (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)) {
+            top_exclusive = zone;
+        }
+        // Bottom anchor (docks)
+        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)) {
+            bottom_exclusive = zone;
+        }
+        // Left anchor (side panels)
+        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
+            left_exclusive = zone;
+        }
+        // Right anchor (side panels)
+        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
+            right_exclusive = zone;
+        }
+    }
+    
+    // Adjust usable area based on exclusive zones
+    int usable_x = left_exclusive;
+    int usable_y = top_exclusive;
+    int usable_width = width - left_exclusive - right_exclusive;
+    int usable_height = height - top_exclusive - bottom_exclusive;
+    
+    // Now use usable dimensions instead of full screen
     int gaps = config.gaps_inner;
     int outer = config.gaps_outer;
     int master_count = config.master_count;
     float master_ratio = config.master_ratio;
-     printf("tile_output: count=%d workspace=%d\n", count, server->current_workspace);
-    // Calculate decoration height ONCE
     int decor_h = config.decor.enabled ? config.decor.height : 0;
     
     int master_width;
     if (count <= master_count) {
-        master_width = width - outer * 2;
+        master_width = usable_width - outer * 2;
     } else {
-        master_width = (int)((width - outer * 2 - gaps) * master_ratio);
+        master_width = (int)((usable_width - outer * 2 - gaps) * master_ratio);
     }
     
     int master_i = 0;
@@ -59,42 +110,41 @@ static void tile_output(struct server *server, struct output *output) {
         if (master_i < master_count) {
             // Master area
             int this_master_count = count < master_count ? count : master_count;
-            x = outer;
+            x = usable_x + outer;
             w = master_width;
             
-            // Calculate total available height for all masters
-            int total_h = height - outer * 2 - gaps * (this_master_count - 1);
-            // Divide among masters
+            // Calculate total available height
+            int total_h = usable_height - outer * 2 - gaps * (this_master_count - 1);
             h = total_h / this_master_count;
-            y = outer + master_i * (h + gaps);
+            y = usable_y + outer + master_i * (h + gaps);
             
             master_i++;
         } else {
             // Stack area
-            x = outer + master_width + gaps;
-            w = width - outer * 2 - master_width - gaps;
+            x = usable_x + outer + master_width + gaps;
+            w = usable_width - outer * 2 - master_width - gaps;
             
-            // Calculate total available height for stack
-            int total_h = height - outer * 2 - gaps * (stack_count - 1);
+            // Calculate total available height
+            int total_h = usable_height - outer * 2 - gaps * (stack_count - 1);
             h = total_h / stack_count;
-            y = outer + stack_i * (h + gaps);
+            y = usable_y + outer + stack_i * (h + gaps);
             
             stack_i++;
         }
         
-        // NOW subtract decoration height from the window content height
-        // The decoration will be drawn ABOVE the content
+        // Subtract decoration height from content
         int content_h = h - decor_h;
         
         // Ensure minimum size
         if (w < 100) w = 100;
         if (content_h < 50) content_h = 50;
         
-        // Update decoration width to match window
+        // Update decoration width
         if (config.decor.enabled && toplevel->decor.tree) {
             decor_set_size(toplevel, w);
         }
         
+        // Position window
         if (config.anim.enabled && config.anim.window_move != ANIM_NONE) {
             anim_start(toplevel, config.anim.window_move, x, y, w, content_h, NULL, NULL);
             anim_schedule_update(server);
@@ -103,14 +153,10 @@ static void tile_output(struct server *server, struct output *output) {
                 &toplevel->decor.tree->node : &toplevel->scene_tree->node;
             wlr_scene_node_set_position(node, x, y);
             wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, w, content_h);
-printf("tile: %s node->x=%d node->y=%d\n", 
-    toplevel->xdg_toplevel->app_id ? toplevel->xdg_toplevel->app_id : "unknown",
-    node->x, node->y);
         }
-
-    printf("tile: window at x=%d y=%d w=%d h=%d\n", x, y, w, content_h);
     }
 }
+
 
 void arrange_windows(struct server *server) {
     if (server->mode == MODE_FLOATING) {
@@ -948,6 +994,7 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
                 wlr_scene_node_set_enabled(node, visible);
             }
             arrange_windows(server);
+ipc_event_workspace(server);
             printf("Switched to workspace %d\n", ws);
         }
         return true;

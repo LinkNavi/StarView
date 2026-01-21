@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-
+#include "ipc.h"
 // Window geometry helpers
 struct wlr_box toplevel_get_geometry(struct toplevel *toplevel) {
     struct wlr_box geo = {0};
@@ -156,7 +156,7 @@ void workspace_show(struct server *server, int workspace) {
             &toplevel->decor.tree->node : &toplevel->scene_tree->node;
         wlr_scene_node_set_enabled(node, visible);
     }
-    
+     ipc_event_workspace(server);
     arrange_windows(server);
 }
 
