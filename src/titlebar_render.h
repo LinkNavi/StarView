@@ -8,7 +8,7 @@
 struct wlr_scene_tree;
 struct wlr_scene_buffer;
 struct toplevel;
-
+struct decor_config;
 /*
  * Button types
  */
@@ -239,7 +239,9 @@ void titlebar_theme_destroy(struct titlebar_theme *theme);
 void titlebar_theme_load_preset(struct titlebar_theme *theme, enum theme_preset preset);
 int titlebar_theme_load_file(struct titlebar_theme *theme, const char *path);
 int titlebar_theme_save_file(struct titlebar_theme *theme, const char *path);
-
+// In titlebar_render.h
+int titlebar_theme_load_from_config(struct titlebar_theme *theme, 
+                                     struct decor_config *config);
 /* Color helpers */
 struct color color_from_hex(uint32_t hex);
 struct color color_from_rgba(float r, float g, float b, float a);

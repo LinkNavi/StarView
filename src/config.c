@@ -448,8 +448,21 @@ static enum anim_curve parse_anim_curve(const char *str) {
     if (strcasecmp(str, "bounce") == 0) return CURVE_BOUNCE;
     return CURVE_LINEAR;
 }
-
-static void parse_decoration(toml_table_t *decor) {
+static uint32_t parse_color_hex(const char *hex) {
+    if (!hex) return 0x1E1E2E; // default color
+    
+    // Skip '#' if present
+    if (hex[0] == '#') hex++;
+    
+    // Parse as hex - this gives us RRGGBB
+    uint32_t color = 0;
+    sscanf(hex, "%x", &color);
+    
+    // The TOML has 6-digit hex (#RRGGBB) but we store as 8-digit (0xRRGGBBFF)
+    // Shift left 8 bits and add full alpha
+    return (color << 8) | 0xFF;
+}
+void parse_decoration(toml_table_t *decor) {
     if (!decor) return;
     
     toml_datum_t v;
@@ -469,31 +482,73 @@ static void parse_decoration(toml_table_t *decor) {
     v = toml_int_in(decor, "corner_radius");
     if (v.ok) config.decor.corner_radius = v.u.i;
     
+    // Colors - parse hex strings to uint32_t
     v = toml_string_in(decor, "bg_color");
-    if (v.ok) { config.decor.bg_color = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.bg_color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
     v = toml_string_in(decor, "bg_color_inactive");
-    if (v.ok) { config.decor.bg_color_inactive = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.bg_color_inactive = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
     v = toml_string_in(decor, "title_color");
-    if (v.ok) { config.decor.title_color = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.title_color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
     v = toml_string_in(decor, "title_color_inactive");
-    if (v.ok) { config.decor.title_color_inactive = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.title_color_inactive = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
+    // Button colors
     v = toml_string_in(decor, "close_color");
-    if (v.ok) { config.decor.btn_close_color = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.btn_close_color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
+    
+    v = toml_string_in(decor, "close_hover");
+    if (v.ok) {
+        config.decor.btn_close_hover = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
     v = toml_string_in(decor, "maximize_color");
-    if (v.ok) { config.decor.btn_max_color = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.btn_max_color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
+    
+    v = toml_string_in(decor, "maximize_hover");
+    if (v.ok) {
+        config.decor.btn_max_hover = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
     v = toml_string_in(decor, "minimize_color");
-    if (v.ok) { config.decor.btn_min_color = parse_color(v.u.s); free(v.u.s); }
+    if (v.ok) {
+        config.decor.btn_min_color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
     
+    v = toml_string_in(decor, "minimize_hover");
+    if (v.ok) {
+        config.decor.btn_min_hover = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
+    
+    // Font
     v = toml_string_in(decor, "font");
-    if (v.ok) { 
+    if (v.ok) {
         strncpy(config.decor.font, v.u.s, sizeof(config.decor.font) - 1);
-        free(v.u.s); 
+        free(v.u.s);
     }
     
     v = toml_int_in(decor, "font_size");

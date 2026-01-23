@@ -1,18 +1,39 @@
 #!/bin/bash
-# StarView Configuration Setup Script
+# StarView Modern Theme Configuration Script
+# Choose between: default, macos, windows11, gnome, minimal
 
 CONFIG_DIR="$HOME/.config/starview"
 KEYBINDS_DIR="$CONFIG_DIR/keybinds"
 
-echo "Setting up StarView configuration..."
+echo "=== StarView Modern Theme Setup ==="
+echo ""
+echo "Available themes:"
+echo "  1) default   - Modern Catppuccin Mocha with glow effects"
+echo "  2) macos     - macOS Big Sur style traffic lights"
+echo "  3) windows11 - Windows 11 Fluent Design"
+echo "  4) gnome     - GNOME 45+ Libadwaita style"
+echo "  5) minimal   - Ultra-minimal Tokyo Night theme"
+echo ""
+echo "Select theme (1-5) [default: 1]: "
+read -r theme_choice
+
+case "$theme_choice" in
+    2) THEME="macos" ;;
+    3) THEME="windows11" ;;
+    4) THEME="gnome" ;;
+    5) THEME="minimal" ;;
+    *) THEME="default" ;;
+esac
+
+echo "Setting up '$THEME' theme..."
 
 # Create directory structure
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$KEYBINDS_DIR"
 
-# Create main configuration file
+# Create main configuration
 cat > "$CONFIG_DIR/starview.toml" << 'EOF'
-# StarView Main Configuration
+# StarView Modern Configuration
 # See: https://github.com/yourname/starview/wiki/Configuration
 
 include = [
@@ -26,16 +47,248 @@ include = [
 ]
 EOF
 
+# Theme-specific settings
+case "$THEME" in
+    "macos")
+        cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 38
+button_size = 13
+button_spacing = 8
+corner_radius = 12
+
+# macOS Big Sur style
+bg_color = "#ebebed"
+bg_color_inactive = "#f6f6f7"
+title_color = "#000000"
+title_color_inactive = "#00000060"
+
+# Traffic light buttons (left side)
+close_color = "#fc615d"
+close_hover = "#fc615d"
+maximize_color = "#34c748"
+maximize_hover = "#34c748"
+minimize_color = "#fdbe40"
+minimize_hover = "#fdbe40"
+
+font = "SF Pro Display, sans-serif"
+font_size = 13
+buttons_left = true
+
+# Modern shadows
+shadow_enabled = true
+shadow_blur = 8
+shadow_offset = 2
+EOF
+        ;;
+        
+    "windows11")
+        cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 32
+button_size = 46
+button_spacing = 0
+corner_radius = 8
+
+# Windows 11 Fluent Design (Mica)
+bg_color = "#f3f3f3fa"
+bg_color_inactive = "#fafafafe"
+title_color = "#000000e6"
+title_color_inactive = "#00000066"
+
+# Accent-colored close button
+close_color = "#c42b1c"
+close_hover = "#c42b1c"
+maximize_color = "#0000000d"
+maximize_hover = "#0000000d"
+minimize_color = "#0000000d"
+minimize_hover = "#0000000d"
+
+font = "Segoe UI Variable, sans-serif"
+font_size = 12
+buttons_left = false
+EOF
+        ;;
+        
+    "gnome")
+        cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 40
+button_size = 22
+button_spacing = 6
+corner_radius = 12
+
+# GNOME Libadwaita dark
+bg_color = "#303030"
+bg_color_inactive = "#242424"
+title_color = "#fffffffa"
+title_color_inactive = "#ffffff99"
+
+# Modern circular buttons
+close_color = "#ff6b6b"
+close_hover = "#ff6b6b"
+maximize_color = "#ffffff1a"
+maximize_hover = "#ffffff2a"
+minimize_color = "#ffffff1a"
+minimize_hover = "#ffffff2a"
+
+font = "Cantarell, Inter, sans-serif"
+font_size = 11
+buttons_left = false
+
+# Subtle gradient
+gradient_enabled = true
+EOF
+        ;;
+        
+    "minimal")
+        cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 28
+button_size = 18
+button_spacing = 6
+corner_radius = 0
+
+# Tokyo Night minimal
+bg_color = "#1a1b26"
+bg_color_inactive = "#16161e"
+title_color = "#a9b1d6"
+title_color_inactive = "#565f89"
+
+# Flat accent colors
+close_color = "#f7768e"
+close_hover = "#f7768e20"
+maximize_color = "#9ece6a"
+maximize_hover = "#9ece6a20"
+minimize_color = "#e0af68"
+minimize_hover = "#e0af6820"
+
+font = "JetBrains Mono, monospace"
+font_size = 10
+buttons_left = false
+EOF
+        ;;
+        
+    *)  # default - Modern Catppuccin Mocha
+        cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 34
+button_size = 16
+button_spacing = 8
+corner_radius = 10
+
+# Modern Catppuccin Mocha with glow
+bg_color = "#1e1e2e"
+bg_color_inactive = "#181825"
+title_color = "#cdd6f4"
+title_color_inactive = "#6c7086"
+
+# Glowing buttons with shadow
+close_color = "#f38ba8"
+close_hover = "#eba0ac"
+maximize_color = "#a6e3a1"
+maximize_hover = "#94e2d5"
+minimize_color = "#f9e2af"
+minimize_hover = "#f5c2e7"
+
+font = "Inter, sans-serif"
+font_size = 12
+buttons_left = false
+
+# Modern effects
+glow_enabled = true
+glow_intensity = 0.4
+gradient_enabled = true
+EOF
+        ;;
+esac
+
+# General settings (theme-aware)
+if [ "$THEME" = "macos" ] || [ "$THEME" = "windows11" ]; then
+    # Light themes
+    cat > "$CONFIG_DIR/general.toml" << 'EOF'
+[general]
+gaps_inner = 10
+gaps_outer = 15
+border_width = 1
+border_color_active = "#007aff"
+border_color_inactive = "#e0e0e0"
+focus_follows_mouse = true
+default_mode = "tiling"
+resize_step = 50
+move_step = 50
+EOF
+else
+    # Dark themes
+    cat > "$CONFIG_DIR/general.toml" << 'EOF'
+[general]
+gaps_inner = 8
+gaps_outer = 12
+border_width = 2
+border_color_active = "#89b4fa"
+border_color_inactive = "#45475a"
+focus_follows_mouse = true
+default_mode = "tiling"
+resize_step = 50
+move_step = 50
+EOF
+fi
+
+# Modern animations
+cat > "$CONFIG_DIR/animation.toml" << 'EOF'
+[animation]
+enabled = true
+duration = 220
+
+# Smooth modern animations
+window_open = "zoom"
+window_close = "fade"
+window_move = "slide"
+window_resize = "none"
+workspace_switch = "slide"
+
+# Smooth easing curves
+curve = "ease_in_out"
+fade_min = 0.0
+zoom_min = 0.88
+
+# Spring animations for macOS-like feel
+spring_mass = 1.0
+spring_stiffness = 180
+spring_damping = 20
+EOF
+
+cat > "$CONFIG_DIR/tiling.toml" << 'EOF'
+[tiling]
+# Dwindle layout (Hyprland-style)
+master_ratio = 0.55
+master_count = 1
+
+# Smart gaps
+smart_gaps = true
+smart_borders = true
+EOF
+
+# Enhanced gesture support
 cat > "$CONFIG_DIR/gestures.toml" << 'EOF'
-# Gesture Configuration
+# Modern Gesture Configuration
 
 [gestures]
-# Sensitivity thresholds
-swipe_threshold = 0.3      # How far to swipe (0.0-1.0)
-pinch_threshold = 0.15     # How much to pinch (0.0-1.0)
-mouse_threshold = 50.0     # Pixels to drag for mouse gestures
+# Fine-tuned thresholds
+swipe_threshold = 0.25
+pinch_threshold = 0.12
+mouse_threshold = 45.0
 
-# Touchpad Gestures - 3 finger swipes for workspace switching
+# Natural scrolling
+natural_scroll = true
+invert_scroll = false
+
+# Touchpad Gestures - macOS-like
 [[gesture_touchpad]]
 fingers = 3
 direction = "left"
@@ -54,9 +307,26 @@ action = "maximize"
 [[gesture_touchpad]]
 fingers = 3
 direction = "down"
+action = "exec rofi -show drun"
+
+# 4-finger gestures
+[[gesture_touchpad]]
+fingers = 4
+direction = "up"
+action = "exec rofi -show window"
+
+[[gesture_touchpad]]
+fingers = 4
+direction = "down"
 action = "minimize"
 
-# Mouse Gestures - Alt+Middle Click drag for window management
+# Pinch gestures
+[[gesture_touchpad]]
+fingers = 2
+direction = "in"
+action = "toggle_floating"
+
+# Mouse Gestures - Alt+Middle for window management
 [[gesture_mouse]]
 button = "middle"
 modifiers = "Alt"
@@ -81,7 +351,7 @@ modifiers = "Alt"
 direction = "right"
 action = "snap_right"
 
-# Super+Right Click for quick app launcher
+# Super+Right Click for quick launcher
 [[gesture_mouse]]
 button = "right"
 modifiers = "Super"
@@ -106,7 +376,7 @@ modifiers = "Super"
 direction = "right"
 action = "exec code"
 
-# Alt+Right Click for workspace switching
+# Alt+Right for workspace switching
 [[gesture_mouse]]
 button = "right"
 modifiers = "Alt"
@@ -120,99 +390,39 @@ direction = "right"
 action = "workspace_next"
 EOF
 
-# Create general.toml
-cat > "$CONFIG_DIR/general.toml" << 'EOF'
-[general]
-gaps_inner = 8
-gaps_outer = 12
-border_width = 2
-border_color_active = "#89b4fa"
-border_color_inactive = "#45475a"
-focus_follows_mouse = true
-default_mode = "tiling"
-resize_step = 50
-move_step = 50
-EOF
-
-# Create decoration.toml
-cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
-[decoration]
-enabled = true
-height = 32
-button_size = 16
-button_spacing = 10
-corner_radius = 10
-
-# Catppuccin Mocha theme
-bg_color = "#1e1e2e"
-bg_color_inactive = "#313244"
-title_color = "#cdd6f4"
-title_color_inactive = "#6c7086"
-
-# Traffic light style buttons
-close_color = "#f38ba8"
-maximize_color = "#a6e3a1"
-minimize_color = "#f9e2af"
-
-font = "sans-serif"
-font_size = 11
-buttons_left = false
-EOF
-
-# Create animation.toml
-cat > "$CONFIG_DIR/animation.toml" << 'EOF'
-[animation]
-enabled = true
-duration = 180
-
-window_open = "zoom"
-window_close = "fade"
-window_move = "none"
-window_resize = "none"
-workspace_switch = "slide"
-
-curve = "ease_out"
-fade_min = 0.0
-zoom_min = 0.85
-EOF
-
-# Create tiling.toml
-cat > "$CONFIG_DIR/tiling.toml" << 'EOF'
-[tiling]
-# Dwindle layout settings
-master_ratio = 0.55
-master_count = 1
-EOF
-
-# Create keybind files
+# Create modern keybinds
 cat > "$KEYBINDS_DIR/apps.toml" << 'EOF'
 [keybinds]
-# Terminal
+# Terminals
 "Super+Return" = "spawn kitty"
 "Super+Shift+Return" = "spawn alacritty"
 
-# Launcher
-"Super+d" = "spawn wofi --show drun"
-"Super+r" = "spawn wofi --show run"
+# Launchers
+"Super+d" = "spawn rofi -show drun"
+"Super+r" = "spawn rofi -show run"
+"Super+slash" = "spawn rofi -show window"
 
 # Common apps
 "Super+b" = "spawn firefox"
 "Super+e" = "spawn thunar"
 "Super+c" = "spawn code"
+"Super+n" = "spawn obsidian"
 EOF
 
 cat > "$KEYBINDS_DIR/windows.toml" << 'EOF'
 [keybinds]
-# Window actions
+# Window management
 "Super+q" = "close"
 "Super+f" = "fullscreen"
 "Super+Space" = "toggle_floating"
 "Super+m" = "minimize"
 "Super+Shift+m" = "maximize"
 
-# Snapping
+# Snapping (Windows-like)
 "Super+Left" = "snap_left"
 "Super+Right" = "snap_right"
+"Super+Up" = "maximize"
+"Super+Down" = "minimize"
 "Super+Shift+c" = "center"
 EOF
 
@@ -227,23 +437,27 @@ cat > "$KEYBINDS_DIR/focus.toml" << 'EOF'
 # Tab navigation
 "Super+Tab" = "focus_next"
 "Super+Shift+Tab" = "focus_prev"
+
+# Monitor focus
+"Super+comma" = "focus_monitor_prev"
+"Super+period" = "focus_monitor_next"
 EOF
 
 cat > "$KEYBINDS_DIR/move.toml" << 'EOF'
 [keybinds]
-# Move windows in tiling layout (swap)
+# Move/swap windows (tiling)
 "Super+Shift+h" = "swap_left"
 "Super+Shift+j" = "swap_down"
 "Super+Shift+k" = "swap_up"
 "Super+Shift+l" = "swap_right"
 
-# Move in floating mode
+# Move windows (floating)
 "Super+Ctrl+h" = "move left"
 "Super+Ctrl+j" = "move down"
 "Super+Ctrl+k" = "move up"
 "Super+Ctrl+l" = "move right"
 
-# Preselect (choose where next window opens)
+# Preselect position for next window
 "Super+Alt+h" = "preselect_left"
 "Super+Alt+j" = "preselect_down"
 "Super+Alt+k" = "preselect_up"
@@ -252,16 +466,19 @@ EOF
 
 cat > "$KEYBINDS_DIR/resize.toml" << 'EOF'
 [keybinds]
-# Resize windows (floating mode)
+# Resize windows
 "Super+Ctrl+Shift+h" = "resize_shrink_width"
 "Super+Ctrl+Shift+l" = "resize_grow_width"
 "Super+Ctrl+Shift+k" = "resize_shrink_height"
 "Super+Ctrl+Shift+j" = "resize_grow_height"
+
+# Reset size
+"Super+Ctrl+Shift+r" = "resize_reset"
 EOF
 
 cat > "$KEYBINDS_DIR/workspaces.toml" << 'EOF'
 [keybinds]
-# Switch workspace
+# Workspace switching
 "Super+1" = "workspace 1"
 "Super+2" = "workspace 2"
 "Super+3" = "workspace 3"
@@ -297,58 +514,105 @@ cat > "$KEYBINDS_DIR/layout.toml" << 'EOF'
 "Super+w" = "mode_floating"
 "Super+grave" = "toggle_mode"
 
-# Tiling adjustments
+# Tiling layout adjustments
 "Super+i" = "inc_master_count"
 "Super+o" = "dec_master_count"
 "Super+minus" = "dec_master_ratio"
 "Super+equal" = "inc_master_ratio"
+
+# Rotate layout
+"Super+Shift+Space" = "rotate_layout"
 EOF
 
 cat > "$KEYBINDS_DIR/system.toml" << 'EOF'
 [keybinds]
-# System
+# System controls
 "Super+Shift+r" = "reload_config"
 "Super+Shift+e" = "exit"
+"Super+Escape" = "spawn swaylock"
 
-# Screenshots
+# Screenshots (modern)
 "Print" = "spawn grim ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"
 "Shift+Print" = "spawn grim -g \"$(slurp)\" ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"
-"Super+Shift+s" = "spawn grim -g \"$(slurp)\" ~/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"
+"Super+Shift+s" = "spawn grim -g \"$(slurp)\" - | wl-copy"
+"Super+Print" = "spawn grim -g \"$(slurp)\" - | swappy -f -"
 
-# Screen lock
-"Super+Escape" = "spawn swaylock"
+# Media controls
+"XF86AudioPlay" = "spawn playerctl play-pause"
+"XF86AudioNext" = "spawn playerctl next"
+"XF86AudioPrev" = "spawn playerctl previous"
+"XF86AudioRaiseVolume" = "spawn pactl set-sink-volume @DEFAULT_SINK@ +5%"
+"XF86AudioLowerVolume" = "spawn pactl set-sink-volume @DEFAULT_SINK@ -5%"
+"XF86AudioMute" = "spawn pactl set-sink-mute @DEFAULT_SINK@ toggle"
+
+# Brightness
+"XF86MonBrightnessUp" = "spawn brightnessctl set +5%"
+"XF86MonBrightnessDown" = "spawn brightnessctl set 5%-"
 EOF
 
-# Create rules.toml
+# Modern window rules
 cat > "$CONFIG_DIR/rules.toml" << 'EOF'
-# Window Rules
+# Modern Window Rules
 
 # Browser on workspace 2
 [[rules]]
 app_id = "firefox"
 workspace = 2
+opacity = 1.0
 
 [[rules]]
 app_id = "chromium"
 workspace = 2
 
-# Picture-in-picture always floating
 [[rules]]
-title = "*Picture-in-Picture*"
-floating = true
+app_id = "Google-chrome"
+workspace = 2
+
+# Communication on workspace 3
+[[rules]]
+app_id = "discord"
+workspace = 3
 
 [[rules]]
-title = "*PiP*"
-floating = true
+app_id = "Slack"
+workspace = 3
 
-# Media players floating
+[[rules]]
+app_id = "teams"
+workspace = 3
+
+# Development on workspace 4
+[[rules]]
+app_id = "code"
+workspace = 4
+
+[[rules]]
+app_id = "jetbrains"
+workspace = 4
+
+# Media players - floating
 [[rules]]
 app_id = "mpv"
 floating = true
 width = 1280
 height = 720
 
-# System utilities floating
+[[rules]]
+app_id = "vlc"
+floating = true
+
+# Picture-in-picture always on top
+[[rules]]
+title = "*Picture-in-Picture*"
+floating = true
+width = 640
+height = 360
+
+[[rules]]
+title = "*PiP*"
+floating = true
+
+# System utilities - floating and centered
 [[rules]]
 app_id = "pavucontrol"
 floating = true
@@ -358,12 +622,14 @@ height = 600
 [[rules]]
 app_id = "blueman-manager"
 floating = true
+width = 700
+height = 500
 
 [[rules]]
 app_id = "nm-connection-editor"
 floating = true
 
-# File pickers always floating
+# File pickers
 [[rules]]
 title = "*Open File*"
 floating = true
@@ -372,7 +638,7 @@ floating = true
 title = "*Save As*"
 floating = true
 
-# Dialogs floating
+# Preferences/Settings dialogs
 [[rules]]
 title = "*Preferences*"
 floating = true
@@ -391,12 +657,7 @@ floating = false
 title = "*Steam - News*"
 floating = true
 
-# Discord
-[[rules]]
-app_id = "discord"
-workspace = 8
-
-# Floating calculator
+# Calculators
 [[rules]]
 app_id = "gnome-calculator"
 floating = true
@@ -406,31 +667,66 @@ height = 600
 [[rules]]
 app_id = "org.kde.kcalc"
 floating = true
+
+# Terminal dropdown
+[[rules]]
+app_id = "dropdown-terminal"
+floating = true
+width = 1600
+height = 800
+
+# Notification center
+[[rules]]
+app_id = "swaync"
+floating = true
+
+# Screen sharing indicators
+[[rules]]
+title = "*is sharing*"
+floating = true
+width = 300
+height = 100
 EOF
 
 echo ""
-echo "✓ StarView configuration created at $CONFIG_DIR"
+echo "✓ StarView configured with '$THEME' theme!"
 echo ""
-echo "Configuration includes:"
-echo "  • Hyprland-style dwindle tiling layout"
-echo "  • Mouse gestures (Alt+Middle, Super+Right, Alt+Right)"
-echo "  • Touchpad gestures (3-finger swipes)"
-echo "  • Window swapping (Super+Shift+h/j/k/l)"
-echo "  • Preselect (Super+Alt+h/j/k/l)"
-echo "  • Vim-style navigation"
-echo "  • Catppuccin Mocha theme"
+echo "Theme features:"
+case "$THEME" in
+    "macos")
+        echo "  • macOS Big Sur traffic light buttons"
+        echo "  • Smooth gradients and shadows"
+        echo "  • Left-aligned window controls"
+        echo "  • SF Pro Display font"
+        ;;
+    "windows11")
+        echo "  • Windows 11 Fluent Design"
+        echo "  • Mica material effect"
+        echo "  • Accent-colored close button"
+        echo "  • Segoe UI Variable font"
+        ;;
+    "gnome")
+        echo "  • GNOME Libadwaita dark theme"
+        echo "  • Modern circular buttons"
+        echo "  • Subtle gradients"
+        echo "  • Cantarell font"
+        ;;
+    "minimal")
+        echo "  • Tokyo Night minimal theme"
+        echo "  • Flat accent colors"
+        echo "  • No decorations, maximum space"
+        echo "  • JetBrains Mono font"
+        ;;
+    *)
+        echo "  • Modern Catppuccin Mocha theme"
+        echo "  • Glowing buttons with shadows"
+        echo "  • Smooth gradients"
+        echo "  • Inter font"
+        ;;
+esac
 echo ""
-echo "Key bindings:"
-echo "  Super+Return        - Terminal"
-echo "  Super+d             - App launcher"
-echo "  Super+q             - Close window"
-echo "  Super+h/j/k/l       - Focus window"
-echo "  Super+Shift+h/j/k/l - Swap windows"
-echo "  Super+Alt+h/j/k/l   - Preselect window position"
-echo "  Super+1-9           - Switch workspace"
-echo "  Alt+Left Click      - Move/swap window"
-echo "  Alt+Right Click     - Resize (floating)"
-echo "  Alt+Middle drag     - Window actions"
+echo "Configuration: $CONFIG_DIR"
 echo ""
-echo "Edit files in $CONFIG_DIR to customize"
+echo "To reload config: Super+Shift+R"
+echo "To switch themes: Run this script again"
 echo ""

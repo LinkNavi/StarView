@@ -10,7 +10,7 @@
 #define MAX_WORKSPACES 10
 #define MAX_WINDOW_RULES 64
 #define MAX_INCLUDE_DEPTH 8
-
+struct decor_config;
 /*
  * WINDOW MODES
  */
@@ -147,24 +147,34 @@ struct anim_config {
  * DECORATION CONFIG
  */
 struct decor_config {
-  bool enabled;
-  int height;
-  int button_size;
-  int button_spacing;
-  int corner_radius;
-  uint32_t bg_color;
-  uint32_t bg_color_inactive;
-  uint32_t title_color;
-  uint32_t title_color_inactive;
-  uint32_t btn_close_color;
-  uint32_t btn_close_hover;
-  uint32_t btn_max_color;
-  uint32_t btn_max_hover;
-  uint32_t btn_min_color;
-  uint32_t btn_min_hover;
-  char font[64];
-  int font_size;
-  bool buttons_left; // macOS style if true
+    bool enabled;
+    
+    /* Basic dimensions */
+    int height;
+    int button_size;
+    int button_spacing;
+    int corner_radius;
+    
+    /* Colors */
+    uint32_t bg_color;
+    uint32_t bg_color_inactive;
+    uint32_t title_color;
+    uint32_t title_color_inactive;
+    
+    /* Button colors */
+    uint32_t btn_close_color;
+    uint32_t btn_close_hover;
+    uint32_t btn_max_color;
+    uint32_t btn_max_hover;
+    uint32_t btn_min_color;
+    uint32_t btn_min_hover;
+    
+    /* Font */
+    char font[64];
+    int font_size;
+    
+    /* Layout */
+    bool buttons_left;
 };
 
 /*

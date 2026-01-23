@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "titlebar_render.h"
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_decoration_v1.h>
@@ -127,10 +128,15 @@ int main(void) {
     char config_file[512];
     snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", getenv("HOME"));
     config_load(config_file);
-    char visual_config[512];
-    snprintf(visual_config, sizeof(visual_config), 
-             "%s/.config/starview/visual.toml", getenv("HOME"));
-    visual_load_config(visual_config);
+ struct titlebar_theme *theme = titlebar_theme_create();
+
+// Load settings from config instead of using preset
+titlebar_theme_load_from_config(theme, &config.decor);
+
+// Set as global theme
+titlebar_set_global_theme(theme);
+
+printf("✓ Titlebar theme initialized from config\n");
  fprintf(stderr, "[GESTURE] Loaded config:\n");
     fprintf(stderr, "[GESTURE]   Touchpad gestures: %d\n", config.gesture_touchpad_count);
     fprintf(stderr, "[GESTURE]   Mouse gestures: %d\n", config.gesture_mouse_count);

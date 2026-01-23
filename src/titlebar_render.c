@@ -3,6 +3,7 @@
 
 #include "titlebar_render.h"
 #include <stdlib.h>
+#include "config.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -16,7 +17,9 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-
+#ifdef USE_TOML
+#include "toml.h"
+#endif
 /* Global theme */
 static struct titlebar_theme *global_theme = NULL;
 
@@ -24,6 +27,7 @@ static struct titlebar_theme *global_theme = NULL;
  * Buffer implementation for Cairo surfaces
  * ============================================================================ */
 
+struct decor_config;  // Forward declaration
 struct cairo_buffer {
     struct wlr_buffer base;
     cairo_surface_t *surface;
@@ -372,290 +376,375 @@ void titlebar_theme_destroy(struct titlebar_theme *theme) {
     free(theme);
 }
 
+
+
 void titlebar_theme_load_preset(struct titlebar_theme *theme, enum theme_preset preset) {
     memset(theme, 0, sizeof(*theme));
     
     switch (preset) {
     case THEME_PRESET_MACOS:
-        /* macOS-style traffic lights */
-        theme->height = 28;
-        theme->padding_left = 8;
-        theme->padding_right = 8;
-        theme->corner_radius_top = 10;
-        theme->bg_color = color_from_hex(0xe8e8e8ff);
-        theme->bg_color_inactive = color_from_hex(0xf6f6f6ff);
-        theme->bg_gradient.direction = GRADIENT_VERTICAL;
-        theme->bg_gradient.start = color_from_hex(0xf8f8f8ff);
-        theme->bg_gradient.end = color_from_hex(0xe0e0e0ff);
+        /* macOS Big Sur style - refined traffic lights */
+        theme->height = 38;
+        theme->padding_left = 12;
+        theme->padding_right = 12;
+        theme->corner_radius_top = 12;
         
+        /* Modern macOS gradient */
+        theme->bg_color = color_from_hex(0xebebedff);
+        theme->bg_color_inactive = color_from_hex(0xf6f6f7ff);
+        theme->bg_gradient.direction = GRADIENT_VERTICAL;
+        theme->bg_gradient.start = color_from_hex(0xf5f5f6ff);
+        theme->bg_gradient.end = color_from_hex(0xe3e3e5ff);
+        
+        /* Subtle border */
+        theme->border.width = 0.5f;
+        theme->border.color = color_from_hex(0xc9c9cbff);
+        theme->border.radius = 12;
+        
+        /* Soft shadow */
+        theme->shadow.enabled = true;
+        theme->shadow.offset_x = 0;
+        theme->shadow.offset_y = 2;
+        theme->shadow.blur = 8;
+        theme->shadow.color = color_from_hex(0x00000020);
+        
+        /* SF Pro Display font */
         theme->title.font_size = 13;
-        strcpy(theme->title.font_family, "SF Pro Display, Helvetica Neue, sans-serif");
-        theme->title.font_weight = 500;
+        strcpy(theme->title.font_family, "SF Pro Display, -apple-system, sans-serif");
+        theme->title.font_weight = 600;
         theme->title.color = color_from_hex(0x000000ff);
-        theme->title_inactive.color = color_from_hex(0x00000080);
+        theme->title_inactive.color = color_from_hex(0x00000060);
         theme->title_align = ALIGN_CENTER;
         
         theme->buttons_left = true;
         theme->button_spacing = 8;
-        theme->button_margin = 8;
+        theme->button_margin = 12;
         
-        /* Close button - red */
+        /* Refined traffic light buttons */
         theme->btn_close.type = BTN_TYPE_CLOSE;
         theme->btn_close.shape = SHAPE_CIRCLE;
-        theme->btn_close.width = 12;
-        theme->btn_close.height = 12;
-        theme->btn_close.normal.bg_color = color_from_hex(0xff5f57ff);
-        theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_close.normal.icon_scale = 0.8f;
-        theme->btn_close.hover.bg_color = color_from_hex(0xff5f57ff);
-        theme->btn_close.hover.icon_color = color_from_hex(0x4d0000ff);
-        theme->btn_close.hover.icon_scale = 0.8f;
-        theme->btn_close.pressed.bg_color = color_from_hex(0xbf4942ff);
-        theme->btn_close.pressed.icon_color = color_from_hex(0x4d0000ff);
-        theme->btn_close.pressed.icon_scale = 0.8f;
+        theme->btn_close.width = 13;
+        theme->btn_close.height = 13;
         
-        /* Minimize button - yellow */
+        theme->btn_close.normal.bg_color = color_from_hex(0xfc615dff);
+        theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
+        theme->btn_close.normal.icon_scale = 0.0f;
+        
+        theme->btn_close.hover.bg_color = color_from_hex(0xfc615dff);
+        theme->btn_close.hover.icon_color = color_from_hex(0x4a0807ff);
+        theme->btn_close.hover.icon_scale = 0.7f;
+        theme->btn_close.hover.border.width = 0.5f;
+        theme->btn_close.hover.border.color = color_from_hex(0xca4542ff);
+        
         theme->btn_minimize.type = BTN_TYPE_MINIMIZE;
         theme->btn_minimize.shape = SHAPE_CIRCLE;
-        theme->btn_minimize.width = 12;
-        theme->btn_minimize.height = 12;
-        theme->btn_minimize.normal.bg_color = color_from_hex(0xfebc2eff);
-        theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_minimize.normal.icon_scale = 0.8f;
-        theme->btn_minimize.hover.bg_color = color_from_hex(0xfebc2eff);
-        theme->btn_minimize.hover.icon_color = color_from_hex(0x995700ff);
-        theme->btn_minimize.hover.icon_scale = 0.8f;
+        theme->btn_minimize.width = 13;
+        theme->btn_minimize.height = 13;
         
-        /* Maximize button - green */
+        theme->btn_minimize.normal.bg_color = color_from_hex(0xfdbe40ff);
+        theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
+        theme->btn_minimize.normal.icon_scale = 0.0f;
+        
+        theme->btn_minimize.hover.bg_color = color_from_hex(0xfdbe40ff);
+        theme->btn_minimize.hover.icon_color = color_from_hex(0x734e00ff);
+        theme->btn_minimize.hover.icon_scale = 0.65f;
+        
         theme->btn_maximize.type = BTN_TYPE_MAXIMIZE;
         theme->btn_maximize.shape = SHAPE_CIRCLE;
-        theme->btn_maximize.width = 12;
-        theme->btn_maximize.height = 12;
-        theme->btn_maximize.normal.bg_color = color_from_hex(0x28c840ff);
+        theme->btn_maximize.width = 13;
+        theme->btn_maximize.height = 13;
+        
+        theme->btn_maximize.normal.bg_color = color_from_hex(0x34c748ff);
         theme->btn_maximize.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_maximize.normal.icon_scale = 0.8f;
-        theme->btn_maximize.hover.bg_color = color_from_hex(0x28c840ff);
-        theme->btn_maximize.hover.icon_color = color_from_hex(0x006500ff);
-        theme->btn_maximize.hover.icon_scale = 0.8f;
+        theme->btn_maximize.normal.icon_scale = 0.0f;
+        
+        theme->btn_maximize.hover.bg_color = color_from_hex(0x34c748ff);
+        theme->btn_maximize.hover.icon_color = color_from_hex(0x0e5017ff);
+        theme->btn_maximize.hover.icon_scale = 0.65f;
         break;
         
     case THEME_PRESET_WINDOWS:
-        /* Windows 11-style */
+        /* Windows 11 Fluent Design */
         theme->height = 32;
         theme->padding_left = 12;
         theme->padding_right = 0;
         theme->corner_radius_top = 8;
-        theme->bg_color = color_from_hex(0xf3f3f3ff);
-        theme->bg_color_inactive = color_from_hex(0xfbfbfbff);
         
+        /* Mica material effect */
+        theme->bg_color = color_from_hex(0xf3f3f3fa);
+        theme->bg_color_inactive = color_from_hex(0xfafafafe);
+        
+        /* Title */
         theme->title.font_size = 12;
-        strcpy(theme->title.font_family, "Segoe UI, sans-serif");
-        theme->title.font_weight = 400;
-        theme->title.color = color_from_hex(0x000000ff);
+        strcpy(theme->title.font_family, "Segoe UI Variable, Segoe UI, sans-serif");
+        theme->title.font_weight = 600;
+        theme->title.color = color_from_hex(0x000000e6);
+        theme->title_inactive.color = color_from_hex(0x00000066);
         theme->title_align = ALIGN_LEFT;
         
         theme->buttons_left = false;
         theme->button_spacing = 0;
         theme->button_margin = 0;
         
-        /* Windows-style rectangular buttons */
+        /* Modern Windows buttons */
         theme->btn_close.shape = SHAPE_RECT;
         theme->btn_close.width = 46;
         theme->btn_close.height = 32;
         theme->btn_close.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_close.normal.icon_color = color_from_hex(0x000000ff);
-        theme->btn_close.normal.icon_scale = 0.65f;
-        theme->btn_close.hover.bg_color = color_from_hex(0xe81123ff);
+        theme->btn_close.normal.icon_color = color_from_hex(0x000000e6);
+        theme->btn_close.normal.icon_scale = 0.55f;
+        
+        theme->btn_close.hover.bg_color = color_from_hex(0xc42b1cff);
         theme->btn_close.hover.icon_color = color_from_hex(0xffffffff);
-        theme->btn_close.hover.icon_scale = 0.65f;
+        theme->btn_close.hover.icon_scale = 0.55f;
         
         theme->btn_maximize.shape = SHAPE_RECT;
         theme->btn_maximize.width = 46;
         theme->btn_maximize.height = 32;
         theme->btn_maximize.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_maximize.normal.icon_color = color_from_hex(0x000000ff);
-        theme->btn_maximize.normal.icon_scale = 0.6f;
-        theme->btn_maximize.hover.bg_color = color_from_hex(0x0000001a);
+        theme->btn_maximize.normal.icon_color = color_from_hex(0x000000e6);
+        theme->btn_maximize.normal.icon_scale = 0.5f;
+        
+        theme->btn_maximize.hover.bg_color = color_from_hex(0x0000000d);
         theme->btn_maximize.hover.icon_color = color_from_hex(0x000000ff);
-        theme->btn_maximize.hover.icon_scale = 0.6f;
+        theme->btn_maximize.hover.icon_scale = 0.5f;
         
         theme->btn_minimize.shape = SHAPE_RECT;
         theme->btn_minimize.width = 46;
         theme->btn_minimize.height = 32;
         theme->btn_minimize.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_minimize.normal.icon_color = color_from_hex(0x000000ff);
-        theme->btn_minimize.normal.icon_scale = 0.6f;
-        theme->btn_minimize.hover.bg_color = color_from_hex(0x0000001a);
+        theme->btn_minimize.normal.icon_color = color_from_hex(0x000000e6);
+        theme->btn_minimize.normal.icon_scale = 0.5f;
+        
+        theme->btn_minimize.hover.bg_color = color_from_hex(0x0000000d);
         theme->btn_minimize.hover.icon_color = color_from_hex(0x000000ff);
-        theme->btn_minimize.hover.icon_scale = 0.6f;
+        theme->btn_minimize.hover.icon_scale = 0.5f;
         break;
         
     case THEME_PRESET_GNOME:
-        /* GNOME/Adwaita style */
-        theme->height = 36;
-        theme->padding_left = 10;
-        theme->padding_right = 10;
+        /* GNOME 45+ Libadwaita style */
+        theme->height = 40;
+        theme->padding_left = 12;
+        theme->padding_right = 12;
         theme->corner_radius_top = 12;
-        theme->bg_color = color_from_hex(0x303030ff);
-        theme->bg_color_inactive = color_from_hex(0x404040ff);
         
+        theme->bg_color = color_from_hex(0x303030ff);
+        theme->bg_color_inactive = color_from_hex(0x242424ff);
+        
+        /* Subtle gradient */
+        theme->bg_gradient.direction = GRADIENT_VERTICAL;
+        theme->bg_gradient.start = color_from_hex(0x383838ff);
+        theme->bg_gradient.end = color_from_hex(0x2a2a2aff);
+        
+        /* Border */
+        theme->border.width = 1;
+        theme->border.color = color_from_hex(0x00000040);
+        theme->border.radius = 12;
+        
+        /* Title */
         theme->title.font_size = 11;
-        strcpy(theme->title.font_family, "Cantarell, sans-serif");
+        strcpy(theme->title.font_family, "Cantarell, Inter, sans-serif");
         theme->title.font_weight = 700;
-        theme->title.color = color_from_hex(0xffffffff);
+        theme->title.color = color_from_hex(0xfffffffa);
+        theme->title_inactive.color = color_from_hex(0xffffff99);
         theme->title_align = ALIGN_CENTER;
         
         theme->buttons_left = false;
         theme->button_spacing = 6;
         theme->button_margin = 6;
         
+        /* Modern GNOME buttons */
         theme->btn_close.shape = SHAPE_CIRCLE;
-        theme->btn_close.width = 20;
-        theme->btn_close.height = 20;
-        theme->btn_close.normal.bg_color = color_from_hex(0x50505080);
-        theme->btn_close.normal.icon_color = color_from_hex(0xffffffff);
-        theme->btn_close.normal.icon_scale = 0.7f;
-        theme->btn_close.hover.bg_color = color_from_hex(0xe0404080);
+        theme->btn_close.width = 22;
+        theme->btn_close.height = 22;
+        
+        theme->btn_close.normal.bg_color = color_from_hex(0xffffff1a);
+        theme->btn_close.normal.icon_color = color_from_hex(0xfffffffa);
+        theme->btn_close.normal.icon_scale = 0.6f;
+        
+        theme->btn_close.hover.bg_color = color_from_hex(0xff6b6bff);
         theme->btn_close.hover.icon_color = color_from_hex(0xffffffff);
-        theme->btn_close.hover.icon_scale = 0.7f;
+        theme->btn_close.hover.icon_scale = 0.6f;
         
         theme->btn_maximize.shape = SHAPE_CIRCLE;
-        theme->btn_maximize.width = 20;
-        theme->btn_maximize.height = 20;
-        theme->btn_maximize.normal.bg_color = color_from_hex(0x50505080);
-        theme->btn_maximize.normal.icon_color = color_from_hex(0xffffffff);
-        theme->btn_maximize.normal.icon_scale = 0.65f;
-        theme->btn_maximize.hover.bg_color = color_from_hex(0x60606080);
+        theme->btn_maximize.width = 22;
+        theme->btn_maximize.height = 22;
+        
+        theme->btn_maximize.normal.bg_color = color_from_hex(0xffffff1a);
+        theme->btn_maximize.normal.icon_color = color_from_hex(0xfffffffa);
+        theme->btn_maximize.normal.icon_scale = 0.55f;
+        
+        theme->btn_maximize.hover.bg_color = color_from_hex(0xffffff2a);
         theme->btn_maximize.hover.icon_color = color_from_hex(0xffffffff);
-        theme->btn_maximize.hover.icon_scale = 0.65f;
+        theme->btn_maximize.hover.icon_scale = 0.55f;
         
         theme->btn_minimize.shape = SHAPE_CIRCLE;
-        theme->btn_minimize.width = 20;
-        theme->btn_minimize.height = 20;
-        theme->btn_minimize.normal.bg_color = color_from_hex(0x50505080);
-        theme->btn_minimize.normal.icon_color = color_from_hex(0xffffffff);
-        theme->btn_minimize.normal.icon_scale = 0.65f;
-        theme->btn_minimize.hover.bg_color = color_from_hex(0x60606080);
+        theme->btn_minimize.width = 22;
+        theme->btn_minimize.height = 22;
+        
+        theme->btn_minimize.normal.bg_color = color_from_hex(0xffffff1a);
+        theme->btn_minimize.normal.icon_color = color_from_hex(0xfffffffa);
+        theme->btn_minimize.normal.icon_scale = 0.55f;
+        
+        theme->btn_minimize.hover.bg_color = color_from_hex(0xffffff2a);
         theme->btn_minimize.hover.icon_color = color_from_hex(0xffffffff);
-        theme->btn_minimize.hover.icon_scale = 0.65f;
+        theme->btn_minimize.hover.icon_scale = 0.55f;
         break;
         
     case THEME_PRESET_MINIMAL:
-        /* Ultra minimal */
-        theme->height = 24;
+        /* Ultra-minimal design */
+        theme->height = 28;
         theme->padding_left = 8;
         theme->padding_right = 8;
         theme->corner_radius_top = 0;
-        theme->bg_color = color_from_hex(0x1e1e2eff);
-        theme->bg_color_inactive = color_from_hex(0x313244ff);
         
-        theme->title.font_size = 11;
-        strcpy(theme->title.font_family, "monospace");
-        theme->title.font_weight = 400;
-        theme->title.color = color_from_hex(0xcdd6f4ff);
+        theme->bg_color = color_from_hex(0x1a1b26ff);
+        theme->bg_color_inactive = color_from_hex(0x16161eff);
+        
+        theme->title.font_size = 10;
+        strcpy(theme->title.font_family, "JetBrains Mono, monospace");
+        theme->title.font_weight = 500;
+        theme->title.color = color_from_hex(0xa9b1d6ff);
+        theme->title_inactive.color = color_from_hex(0x565f89ff);
         theme->title_align = ALIGN_LEFT;
         
         theme->buttons_left = false;
-        theme->button_spacing = 4;
-        theme->button_margin = 4;
+        theme->button_spacing = 6;
+        theme->button_margin = 6;
         
+        /* Minimal flat buttons */
         theme->btn_close.shape = SHAPE_RECT;
-        theme->btn_close.width = 16;
-        theme->btn_close.height = 16;
+        theme->btn_close.width = 18;
+        theme->btn_close.height = 18;
+        
         theme->btn_close.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_close.normal.icon_color = color_from_hex(0xf38ba8ff);
-        theme->btn_close.normal.icon_scale = 0.6f;
-        theme->btn_close.hover.bg_color = color_from_hex(0xf38ba820);
-        theme->btn_close.hover.icon_color = color_from_hex(0xf38ba8ff);
-        theme->btn_close.hover.icon_scale = 0.6f;
+        theme->btn_close.normal.icon_color = color_from_hex(0xf7768eff);
+        theme->btn_close.normal.icon_scale = 0.5f;
+        
+        theme->btn_close.hover.bg_color = color_from_hex(0xf7768e20);
+        theme->btn_close.hover.icon_color = color_from_hex(0xf7768eff);
+        theme->btn_close.hover.icon_scale = 0.5f;
         
         theme->btn_maximize.shape = SHAPE_RECT;
-        theme->btn_maximize.width = 16;
-        theme->btn_maximize.height = 16;
+        theme->btn_maximize.width = 18;
+        theme->btn_maximize.height = 18;
+        
         theme->btn_maximize.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_maximize.normal.icon_color = color_from_hex(0xa6e3a1ff);
-        theme->btn_maximize.normal.icon_scale = 0.55f;
-        theme->btn_maximize.hover.bg_color = color_from_hex(0xa6e3a120);
-        theme->btn_maximize.hover.icon_color = color_from_hex(0xa6e3a1ff);
-        theme->btn_maximize.hover.icon_scale = 0.55f;
+        theme->btn_maximize.normal.icon_color = color_from_hex(0x9ece6aff);
+        theme->btn_maximize.normal.icon_scale = 0.45f;
+        
+        theme->btn_maximize.hover.bg_color = color_from_hex(0x9ece6a20);
+        theme->btn_maximize.hover.icon_color = color_from_hex(0x9ece6aff);
+        theme->btn_maximize.hover.icon_scale = 0.45f;
         
         theme->btn_minimize.shape = SHAPE_RECT;
-        theme->btn_minimize.width = 16;
-        theme->btn_minimize.height = 16;
+        theme->btn_minimize.width = 18;
+        theme->btn_minimize.height = 18;
+        
         theme->btn_minimize.normal.bg_color = color_from_hex(0x00000000);
-        theme->btn_minimize.normal.icon_color = color_from_hex(0xf9e2afff);
-        theme->btn_minimize.normal.icon_scale = 0.55f;
-        theme->btn_minimize.hover.bg_color = color_from_hex(0xf9e2af20);
-        theme->btn_minimize.hover.icon_color = color_from_hex(0xf9e2afff);
-        theme->btn_minimize.hover.icon_scale = 0.55f;
+        theme->btn_minimize.normal.icon_color = color_from_hex(0xe0af68ff);
+        theme->btn_minimize.normal.icon_scale = 0.45f;
+        
+        theme->btn_minimize.hover.bg_color = color_from_hex(0xe0af6820);
+        theme->btn_minimize.hover.icon_color = color_from_hex(0xe0af68ff);
+        theme->btn_minimize.hover.icon_scale = 0.45f;
         break;
         
     case THEME_PRESET_DEFAULT:
     default:
-        /* Catppuccin-style default */
-        theme->height = 30;
-        theme->padding_left = 10;
-        theme->padding_right = 10;
-        theme->corner_radius_top = 8;
+        /* Modern Catppuccin Mocha - enhanced */
+        theme->height = 34;
+        theme->padding_left = 12;
+        theme->padding_right = 12;
+        theme->corner_radius_top = 10;
+        
         theme->bg_color = color_from_hex(0x1e1e2eff);
-        theme->bg_color_inactive = color_from_hex(0x313244ff);
+        theme->bg_color_inactive = color_from_hex(0x181825ff);
+        
+        /* Smooth gradient */
         theme->bg_gradient.direction = GRADIENT_VERTICAL;
-        theme->bg_gradient.start = color_from_hex(0x2a2a3cff);
+        theme->bg_gradient.start = color_from_hex(0x313244ff);
         theme->bg_gradient.end = color_from_hex(0x1e1e2eff);
         
+        /* Subtle glow border */
+        theme->border.width = 0;
+        theme->shadow.enabled = true;
+        theme->shadow.offset_x = 0;
+        theme->shadow.offset_y = 0;
+        theme->shadow.blur = 2;
+        theme->shadow.color = color_from_hex(0x89b4fa30);
+        
         theme->title.font_size = 12;
-        strcpy(theme->title.font_family, "sans-serif");
+        strcpy(theme->title.font_family, "Inter, sans-serif");
         theme->title.font_weight = 600;
         theme->title.color = color_from_hex(0xcdd6f4ff);
-        theme->title_inactive = theme->title;
         theme->title_inactive.color = color_from_hex(0x6c7086ff);
         theme->title_align = ALIGN_CENTER;
         
         theme->buttons_left = false;
         theme->button_spacing = 8;
-        theme->button_margin = 8;
+        theme->button_margin = 10;
         
+        /* Modern buttons with glow effect */
         theme->btn_close.type = BTN_TYPE_CLOSE;
         theme->btn_close.shape = SHAPE_CIRCLE;
-        theme->btn_close.width = 14;
-        theme->btn_close.height = 14;
+        theme->btn_close.width = 16;
+        theme->btn_close.height = 16;
+        
         theme->btn_close.normal.bg_color = color_from_hex(0xf38ba8ff);
+        theme->btn_close.normal.shadow.enabled = true;
+        theme->btn_close.normal.shadow.blur = 4;
+        theme->btn_close.normal.shadow.color = color_from_hex(0xf38ba840);
         theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_close.normal.icon_scale = 0.7f;
+        theme->btn_close.normal.icon_scale = 0.0f;
+        
         theme->btn_close.hover.bg_color = color_from_hex(0xeba0acff);
+        theme->btn_close.hover.shadow.enabled = true;
+        theme->btn_close.hover.shadow.blur = 8;
+        theme->btn_close.hover.shadow.color = color_from_hex(0xf38ba860);
         theme->btn_close.hover.icon_color = color_from_hex(0x1e1e2eff);
-        theme->btn_close.hover.icon_scale = 0.7f;
-        theme->btn_close.pressed.bg_color = color_from_hex(0xd68096ff);
-        theme->btn_close.pressed.icon_color = color_from_hex(0x1e1e2eff);
-        theme->btn_close.pressed.icon_scale = 0.7f;
+        theme->btn_close.hover.icon_scale = 0.65f;
         
         theme->btn_maximize.type = BTN_TYPE_MAXIMIZE;
         theme->btn_maximize.shape = SHAPE_CIRCLE;
-        theme->btn_maximize.width = 14;
-        theme->btn_maximize.height = 14;
+        theme->btn_maximize.width = 16;
+        theme->btn_maximize.height = 16;
+        
         theme->btn_maximize.normal.bg_color = color_from_hex(0xa6e3a1ff);
+        theme->btn_maximize.normal.shadow.enabled = true;
+        theme->btn_maximize.normal.shadow.blur = 4;
+        theme->btn_maximize.normal.shadow.color = color_from_hex(0xa6e3a140);
         theme->btn_maximize.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_maximize.normal.icon_scale = 0.65f;
+        
         theme->btn_maximize.hover.bg_color = color_from_hex(0x94e2d5ff);
+        theme->btn_maximize.hover.shadow.enabled = true;
+        theme->btn_maximize.hover.shadow.blur = 8;
+        theme->btn_maximize.hover.shadow.color = color_from_hex(0xa6e3a160);
         theme->btn_maximize.hover.icon_color = color_from_hex(0x1e1e2eff);
-        theme->btn_maximize.hover.icon_scale = 0.65f;
+        theme->btn_maximize.hover.icon_scale = 0.6f;
         
         theme->btn_minimize.type = BTN_TYPE_MINIMIZE;
         theme->btn_minimize.shape = SHAPE_CIRCLE;
-        theme->btn_minimize.width = 14;
-        theme->btn_minimize.height = 14;
+        theme->btn_minimize.width = 16;
+        theme->btn_minimize.height = 16;
+        
         theme->btn_minimize.normal.bg_color = color_from_hex(0xf9e2afff);
+        theme->btn_minimize.normal.shadow.enabled = true;
+        theme->btn_minimize.normal.shadow.blur = 4;
+        theme->btn_minimize.normal.shadow.color = color_from_hex(0xf9e2af40);
         theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
-        theme->btn_minimize.normal.icon_scale = 0.65f;
+        
         theme->btn_minimize.hover.bg_color = color_from_hex(0xf5c2e7ff);
+        theme->btn_minimize.hover.shadow.enabled = true;
+        theme->btn_minimize.hover.shadow.blur = 8;
+        theme->btn_minimize.hover.shadow.color = color_from_hex(0xf9e2af60);
         theme->btn_minimize.hover.icon_color = color_from_hex(0x1e1e2eff);
-        theme->btn_minimize.hover.icon_scale = 0.65f;
+        theme->btn_minimize.hover.icon_scale = 0.6f;
         break;
     }
     
-    theme->inactive_opacity = 0.8f;
+    theme->inactive_opacity = 0.85f;
 }
-
 /* ============================================================================
  * Titlebar rendering
  * ============================================================================ */
@@ -1068,13 +1157,224 @@ struct titlebar_theme *titlebar_get_global_theme(void) {
  * Theme file loading (TOML format)
  * ============================================================================ */
 
-int titlebar_theme_load_file(struct titlebar_theme *theme, const char *path) {
-    /* TODO: Implement TOML parsing for custom themes */
-    /* For now, just return error */
-    (void)theme;
-    (void)path;
-    return -1;
+static struct color parse_color_string(const char *str) {
+    if (!str || str[0] != '#') {
+        return color_from_hex(0x000000ff);
+    }
+    
+    uint32_t hex = 0;
+    sscanf(str + 1, "%x", &hex);
+    
+    /* If 6 digits (RGB), add full alpha */
+    if (strlen(str) == 7) {
+        hex = (hex << 8) | 0xFF;
+    }
+    
+    return color_from_hex(hex);
 }
+
+int titlebar_theme_load_from_config(struct titlebar_theme *theme, 
+                                     struct decor_config *config) {
+    if (!theme || !config) return -1;
+    
+    /* Basic dimensions */
+    theme->height = config->height > 0 ? config->height : 34;
+    theme->padding_left = 12;
+    theme->padding_right = 12;
+    theme->corner_radius_top = config->corner_radius >= 0 ? config->corner_radius : 10;
+    
+    /* Colors - convert from uint32_t hex to struct color */
+    theme->bg_color = color_from_hex(config->bg_color << 8 | 0xFF);
+    theme->bg_color_inactive = color_from_hex(config->bg_color_inactive << 8 | 0xFF);
+    
+    /* Title settings */
+    theme->title.font_size = config->font_size > 0 ? config->font_size : 12;
+    strncpy(theme->title.font_family, config->font, 
+            sizeof(theme->title.font_family) - 1);
+    theme->title.font_weight = 600;
+    theme->title.color = color_from_hex(config->title_color << 8 | 0xFF);
+    theme->title_inactive.color = color_from_hex(config->title_color_inactive << 8 | 0xFF);
+    theme->title_align = ALIGN_CENTER;
+    
+    /* Button layout */
+    theme->buttons_left = config->buttons_left;
+    theme->button_spacing = config->button_spacing > 0 ? config->button_spacing : 8;
+    theme->button_margin = 10;
+    
+    /* Close button */
+    theme->btn_close.type = BTN_TYPE_CLOSE;
+    theme->btn_close.shape = SHAPE_CIRCLE;
+    theme->btn_close.width = config->button_size > 0 ? config->button_size : 16;
+    theme->btn_close.height = config->button_size > 0 ? config->button_size : 16;
+    
+    theme->btn_close.normal.bg_color = color_from_hex(config->btn_close_color << 8 | 0xFF);
+    theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
+    theme->btn_close.normal.icon_scale = 0.0f;
+    
+    theme->btn_close.hover.bg_color = color_from_hex(config->btn_close_hover << 8 | 0xFF);
+    theme->btn_close.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_close.hover.icon_scale = 0.65f;
+    
+    /* Maximize button */
+    theme->btn_maximize.type = BTN_TYPE_MAXIMIZE;
+    theme->btn_maximize.shape = SHAPE_CIRCLE;
+    theme->btn_maximize.width = config->button_size > 0 ? config->button_size : 16;
+    theme->btn_maximize.height = config->button_size > 0 ? config->button_size : 16;
+    
+    theme->btn_maximize.normal.bg_color = color_from_hex(config->btn_max_color << 8 | 0xFF);
+    theme->btn_maximize.normal.icon_color = color_from_hex(0x00000000);
+    theme->btn_maximize.normal.icon_scale = 0.0f;
+    
+    theme->btn_maximize.hover.bg_color = color_from_hex(config->btn_max_hover << 8 | 0xFF);
+    theme->btn_maximize.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_maximize.hover.icon_scale = 0.6f;
+    
+    /* Minimize button */
+    theme->btn_minimize.type = BTN_TYPE_MINIMIZE;
+    theme->btn_minimize.shape = SHAPE_CIRCLE;
+    theme->btn_minimize.width = config->button_size > 0 ? config->button_size : 16;
+    theme->btn_minimize.height = config->button_size > 0 ? config->button_size : 16;
+    
+    theme->btn_minimize.normal.bg_color = color_from_hex(config->btn_min_color << 8 | 0xFF);
+    theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
+    theme->btn_minimize.normal.icon_scale = 0.0f;
+    
+    theme->btn_minimize.hover.bg_color = color_from_hex(config->btn_min_hover << 8 | 0xFF);
+    theme->btn_minimize.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_minimize.hover.icon_scale = 0.6f;
+    
+    theme->inactive_opacity = 0.85f;
+    
+    printf("✓ Loaded titlebar theme from config\n");
+    // Change from %d to %.0f for the last format specifier
+printf("  Height: %d, Buttons: %.0f×%.0f, Corner radius: %.0f\n", 
+       theme->height, theme->btn_close.width, theme->btn_close.height,
+       theme->corner_radius_top);
+    
+    return 0;
+}
+#ifdef USE_TOML
+/* Load theme directly from TOML file */
+int titlebar_theme_load_file(struct titlebar_theme *theme, const char *path) {
+    if (!theme || !path) return -1;
+    
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        fprintf(stderr, "Failed to open theme file: %s\n", strerror(errno));
+        return -1;
+    }
+    
+    char errbuf[200];
+    toml_table_t *conf = toml_parse_file(fp, errbuf, sizeof(errbuf));
+    fclose(fp);
+    
+    if (!conf) {
+        fprintf(stderr, "Failed to parse theme file: %s\n", errbuf);
+        return -1;
+    }
+    
+    /* Parse basic settings */
+    toml_datum_t val;
+    
+    val = toml_int_in(conf, "height");
+    if (val.ok) theme->height = val.u.i;
+    
+    val = toml_int_in(conf, "corner_radius");
+    if (val.ok) theme->corner_radius_top = val.u.i;
+    
+    val = toml_string_in(conf, "bg_color");
+    if (val.ok) {
+        theme->bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "bg_color_inactive");
+    if (val.ok) {
+        theme->bg_color_inactive = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_int_in(conf, "button_size");
+    if (val.ok) {
+        theme->btn_close.width = val.u.i;
+        theme->btn_close.height = val.u.i;
+        theme->btn_maximize.width = val.u.i;
+        theme->btn_maximize.height = val.u.i;
+        theme->btn_minimize.width = val.u.i;
+        theme->btn_minimize.height = val.u.i;
+    }
+    
+    val = toml_int_in(conf, "button_spacing");
+    if (val.ok) theme->button_spacing = val.u.i;
+    
+    val = toml_bool_in(conf, "buttons_left");
+    if (val.ok) theme->buttons_left = val.u.b;
+    
+    val = toml_string_in(conf, "font");
+    if (val.ok) {
+        strncpy(theme->title.font_family, val.u.s, 
+                sizeof(theme->title.font_family) - 1);
+        free(val.u.s);
+    }
+    
+    val = toml_int_in(conf, "font_size");
+    if (val.ok) theme->title.font_size = val.u.i;
+    
+    val = toml_string_in(conf, "title_color");
+    if (val.ok) {
+        theme->title.color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "title_color_inactive");
+    if (val.ok) {
+        theme->title_inactive.color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    /* Button colors */
+    val = toml_string_in(conf, "close_color");
+    if (val.ok) {
+        theme->btn_close.normal.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "close_hover");
+    if (val.ok) {
+        theme->btn_close.hover.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "maximize_color");
+    if (val.ok) {
+        theme->btn_maximize.normal.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "maximize_hover");
+    if (val.ok) {
+        theme->btn_maximize.hover.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "minimize_color");
+    if (val.ok) {
+        theme->btn_minimize.normal.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    val = toml_string_in(conf, "minimize_hover");
+    if (val.ok) {
+        theme->btn_minimize.hover.bg_color = parse_color_string(val.u.s);
+        free(val.u.s);
+    }
+    
+    toml_free(conf);
+    
+    printf("Loaded titlebar theme from file: %s\n", path);
+    return 0;
+}
+#endif
 
 int titlebar_theme_save_file(struct titlebar_theme *theme, const char *path) {
     /* TODO: Implement theme saving */
