@@ -1,13 +1,13 @@
 /* visual_config.c - Parse visual configuration from TOML */
 #define _POSIX_C_SOURCE 200809L
 
-#include "visual.h"
-#include "toml.h"
-#include "config.h"
+#include "../visual.h"
+#include "../toml.h"
+#include "../config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <strings.h>
 /* Parse theme preset from string */
 static theme_preset_t parse_theme_preset(const char *str) {
     if (!str) return THEME_DEFAULT;

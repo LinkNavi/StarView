@@ -1,161 +1,163 @@
-/* decor_visual.c - Integration of visual system with window decorations */
+/* decor.c - Window decoration using configurable visual system */
 #define _POSIX_C_SOURCE 200809L
 #define WLR_USE_UNSTABLE
 
-#include "core.h"
-#include "config.h"
-#include "visual.h"
+#include "../core.h"
+#include "../config.h"
+#include "../titlebar_render.h"
 #include <stdlib.h>
 #include <string.h>
+#include <wlr/types/wlr_scene.h>
 
-/* Global visual configuration */
-static visual_config_t *g_visual_config = NULL;
-static render_surface_t *g_titlebar_surfaces[32] = {0};
-static int g_surface_count = 0;
+/* Global theme instance - can be changed at runtime */
+static struct titlebar_theme *g_theme = NULL;
+static enum theme_preset g_current_preset = THEME_PRESET_DEFAULT;
 
-/* Initialize visual system with theme */
-void visual_init(theme_preset_t preset) {
-    if (g_visual_config) {
-        free(g_visual_config);
-    }
+/* Ensure theme is initialized */
+static void ensure_theme_initialized(void) {
+    if (g_theme) return;
     
-    g_visual_config = malloc(sizeof(visual_config_t));
-    if (!g_visual_config) return;
+    g_theme = titlebar_theme_create();
+    if (g_theme) {
+        titlebar_theme_load_preset(g_theme, g_current_preset);
+        titlebar_set_global_theme(g_theme);
+    }
+}
+
+/* Set theme preset - can be called from config or keybindings */
+void decor_set_theme_preset(enum theme_preset preset) {
+    g_current_preset = preset;
     
-    *g_visual_config = visual_config_preset(preset);
-}
-
-/* Load visual config from file */
-int visual_load_config(const char *path) {
-    if (!g_visual_config) {
-        g_visual_config = malloc(sizeof(visual_config_t));
-        if (!g_visual_config) return -1;
-        *g_visual_config = visual_config_default();
-    }
-    
-    return visual_config_load(g_visual_config, path);
-}
-
-/* Get current visual config */
-visual_config_t *visual_get_config(void) {
-    if (!g_visual_config) {
-        g_visual_config = malloc(sizeof(visual_config_t));
-        if (g_visual_config) {
-            *g_visual_config = visual_config_default();
-        }
-    }
-    return g_visual_config;
-}
-
-/* Apply theme preset */
-void visual_set_theme(theme_preset_t preset) {
-    if (!g_visual_config) {
-        g_visual_config = malloc(sizeof(visual_config_t));
-    }
-    if (g_visual_config) {
-        *g_visual_config = visual_config_preset(preset);
+    if (g_theme) {
+        titlebar_theme_load_preset(g_theme, preset);
+    } else {
+        ensure_theme_initialized();
     }
 }
 
-/* Create decoration using visual system */
-void decor_create_visual(struct toplevel *toplevel) {
+/* Get current theme for external modification */
+struct titlebar_theme *decor_get_theme(void) {
+    ensure_theme_initialized();
+    return g_theme;
+}
+
+/* Color conversion helper */
+static void color_to_float(uint32_t color, float out[4]) {
+    out[0] = ((color >> 24) & 0xff) / 255.0f;
+    out[1] = ((color >> 16) & 0xff) / 255.0f;
+    out[2] = ((color >> 8) & 0xff) / 255.0f;
+    out[3] = (color & 0xff) / 255.0f;
+}
+
+void decor_create(struct toplevel *toplevel) {
     if (!config.decor.enabled) return;
     
-    visual_config_t *vcfg = visual_get_config();
-    if (!vcfg) return;
+    ensure_theme_initialized();
     
     struct server *server = toplevel->server;
     struct decoration *d = &toplevel->decor;
     
-    /* Create decoration tree */
+    /* Create decoration tree as parent of window */
     d->tree = wlr_scene_tree_create(server->layer_windows);
     if (!d->tree) return;
     
-    /* Create titlebar surface */
-    int width = 800; /* Default width, will be updated */
-    render_surface_t *rs = render_surface_create(d->tree, 
-        width, vcfg->decoration.titlebar.height);
+    int h = g_theme ? g_theme->height : config.decor.height;
+    int bw = config.border_width;
     
-    if (!rs) {
-        wlr_scene_node_destroy(&d->tree->node);
-        d->tree = NULL;
-        return;
+    /* Create Cairo-rendered titlebar */
+    if (g_theme) {
+        d->rendered_titlebar = titlebar_render_create(d->tree, g_theme);
     }
     
-    /* Store surface for later updates */
-    if (g_surface_count < 32) {
-        g_titlebar_surfaces[g_surface_count++] = rs;
-    }
+    /* Create borders using scene rects */
+    float border_color[4];
+    color_to_float(config.border_color_active, border_color);
     
-    d->rendered_titlebar = rs;
+    d->border_top = wlr_scene_rect_create(d->tree, 100, bw, border_color);
+    d->border_bottom = wlr_scene_rect_create(d->tree, 100, bw, border_color);
+    d->border_left = wlr_scene_rect_create(d->tree, bw, 100, border_color);
+    d->border_right = wlr_scene_rect_create(d->tree, bw, 100, border_color);
     
     /* Reparent toplevel scene tree under decoration tree */
     wlr_scene_node_reparent(&toplevel->scene_tree->node, d->tree);
-    wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, 
-        vcfg->decoration.titlebar.height);
+    wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, h);
+    
+    d->width = 100;
+}
+
+void decor_set_size(struct toplevel *toplevel, int width) {
+    if (!config.decor.enabled || !toplevel->decor.tree) return;
+    
+    struct decoration *d = &toplevel->decor;
+    
+    int h = g_theme ? g_theme->height : config.decor.height;
+    int bw = config.border_width;
     
     d->width = width;
+    
+    /* Update Cairo titlebar */
+    if (d->rendered_titlebar && g_theme) {
+        const char *title = toplevel->xdg_toplevel->title;
+        if (!title) title = toplevel->xdg_toplevel->app_id;
+        if (!title) title = "Untitled";
+        
+        bool active = (toplevel == get_focused_toplevel(toplevel->server));
+        titlebar_render_update(d->rendered_titlebar, g_theme, width, title, active);
+    }
+    
+    /* Get actual content height */
+    struct wlr_box geo;
+    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    int content_height = geo.height > 0 ? geo.height : 100;
+    int total_height = h + content_height;
+    
+    /* Resize borders */
+    wlr_scene_rect_set_size(d->border_top, width + bw * 2, bw);
+    wlr_scene_node_set_position(&d->border_top->node, -bw, -bw);
+    
+    wlr_scene_rect_set_size(d->border_bottom, width + bw * 2, bw);
+    wlr_scene_node_set_position(&d->border_bottom->node, -bw, total_height);
+    
+    wlr_scene_rect_set_size(d->border_left, bw, total_height + bw * 2);
+    wlr_scene_node_set_position(&d->border_left->node, -bw, -bw);
+    
+    wlr_scene_rect_set_size(d->border_right, bw, total_height + bw * 2);
+    wlr_scene_node_set_position(&d->border_right->node, width, -bw);
 }
 
-/* Update decoration using visual system */
-void decor_update_visual(struct toplevel *toplevel, bool focused) {
+void decor_update(struct toplevel *toplevel, bool focused) {
     if (!config.decor.enabled || !toplevel->decor.tree) return;
     
-    visual_config_t *vcfg = visual_get_config();
-    if (!vcfg) return;
+    struct decoration *d = &toplevel->decor;
     
-    render_surface_t *rs = toplevel->decor.rendered_titlebar;
-    if (!rs) return;
+    /* Update Cairo titlebar for focus state */
+    if (d->rendered_titlebar && g_theme) {
+        const char *title = toplevel->xdg_toplevel->title;
+        if (!title) title = toplevel->xdg_toplevel->app_id;
+        if (!title) title = "Untitled";
+        
+        titlebar_render_update(d->rendered_titlebar, g_theme, d->width, title, focused);
+    }
     
-    /* Get title */
-    const char *title = toplevel->xdg_toplevel->title;
-    if (!title) title = toplevel->xdg_toplevel->app_id;
-    if (!title) title = "Untitled";
+    /* Update border colors */
+    float border[4];
+    if (focused) {
+        color_to_float(config.border_color_active, border);
+    } else {
+        color_to_float(config.border_color_inactive, border);
+    }
     
-    /* Draw titlebar */
-    draw_titlebar(rs, &vcfg->decoration.titlebar, title, focused, -1);
-    render_surface_commit(rs);
+    wlr_scene_rect_set_color(d->border_top, border);
+    wlr_scene_rect_set_color(d->border_bottom, border);
+    wlr_scene_rect_set_color(d->border_left, border);
+    wlr_scene_rect_set_color(d->border_right, border);
 }
 
-/* Set titlebar size using visual system */
-void decor_set_size_visual(struct toplevel *toplevel, int width) {
-    if (!config.decor.enabled || !toplevel->decor.tree) return;
-    
-    visual_config_t *vcfg = visual_get_config();
-    if (!vcfg) return;
-    
-    render_surface_t *rs = toplevel->decor.rendered_titlebar;
-    if (!rs) return;
-    
-    toplevel->decor.width = width;
-    
-    /* Resize surface */
-    render_surface_resize(rs, width, vcfg->decoration.titlebar.height);
-    
-    /* Redraw */
-    const char *title = toplevel->xdg_toplevel->title;
-    if (!title) title = toplevel->xdg_toplevel->app_id;
-    if (!title) title = "Untitled";
-    
-    bool active = (toplevel == get_focused_toplevel(toplevel->server));
-    draw_titlebar(rs, &vcfg->decoration.titlebar, title, active, -1);
-    render_surface_commit(rs);
-}
-
-/* Destroy decoration using visual system */
-void decor_destroy_visual(struct toplevel *toplevel) {
+void decor_destroy(struct toplevel *toplevel) {
     if (!toplevel->decor.tree) return;
     
-    render_surface_t *rs = toplevel->decor.rendered_titlebar;
-    if (rs) {
-        /* Remove from global list */
-        for (int i = 0; i < g_surface_count; i++) {
-            if (g_titlebar_surfaces[i] == rs) {
-                g_titlebar_surfaces[i] = g_titlebar_surfaces[--g_surface_count];
-                break;
-            }
-        }
-        render_surface_destroy(rs);
+    if (toplevel->decor.rendered_titlebar) {
+        titlebar_render_destroy(toplevel->decor.rendered_titlebar);
         toplevel->decor.rendered_titlebar = NULL;
     }
     
@@ -163,86 +165,29 @@ void decor_destroy_visual(struct toplevel *toplevel) {
     toplevel->decor.tree = NULL;
 }
 
-/* Hit test using visual system */
-enum decor_hit decor_hit_test_visual(struct toplevel *toplevel, double lx, double ly) {
+enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
     if (!config.decor.enabled || !toplevel->decor.tree) return HIT_NONE;
     
-    visual_config_t *vcfg = visual_get_config();
-    if (!vcfg) return HIT_NONE;
+    struct decoration *d = &toplevel->decor;
     
     /* Get decoration position */
-    int dx = toplevel->decor.tree->node.x;
-    int dy = toplevel->decor.tree->node.y;
+    int dx = d->tree->node.x;
+    int dy = d->tree->node.y;
     
     /* Local coordinates */
     double x = lx - dx;
     double y = ly - dy;
     
-    int h = vcfg->decoration.titlebar.height;
-    int width = toplevel->decor.width;
+    int h = g_theme ? g_theme->height : config.decor.height;
+    int bw = config.border_width;
+    int width = d->width;
     
-    /* Check titlebar area */
-    if (y >= 0 && y < h && x >= 0 && x < width) {
-        titlebar_config_t *tb = &vcfg->decoration.titlebar;
-        
-        if (!tb->buttons_visible) return HIT_TITLEBAR;
-        
-        /* Calculate button positions */
-        button_style_t *buttons[] = {
-            &tb->btn_close,
-            &tb->btn_maximize,
-            &tb->btn_minimize,
-        };
-        
-        int total_btn_width = 0;
-        int visible_count = 0;
-        
-        for (int i = 0; i < 4 && tb->button_order[i] >= 0; i++) {
-            int idx = tb->button_order[i];
-            if (idx >= 0 && idx < 3) {
-                total_btn_width += buttons[idx]->width;
-                visible_count++;
-            }
-        }
-        total_btn_width += tb->button_spacing * (visible_count - 1);
-        
-        int btn_x;
-        if (tb->buttons_left) {
-            btn_x = tb->button_margin;
-        } else {
-            btn_x = width - tb->button_margin - total_btn_width;
-        }
-        
-        int btn_y = (h - buttons[0]->height) / 2;
-        
-        /* Check each button */
-        for (int i = 0; i < 4 && tb->button_order[i] >= 0; i++) {
-            int idx = tb->button_order[i];
-            if (idx < 0 || idx >= 3) continue;
-            
-            button_style_t *btn = buttons[idx];
-            
-            if (x >= btn_x && x < btn_x + btn->width &&
-                y >= btn_y && y < btn_y + btn->height) {
-                
-                switch (idx) {
-                case 0: return HIT_CLOSE;
-                case 1: return HIT_MAXIMIZE;
-                case 2: return HIT_MINIMIZE;
-                }
-            }
-            
-            btn_x += btn->width + tb->button_spacing;
-        }
-        
-        return HIT_TITLEBAR;
-    }
-    
-    /* Check resize edges */
-    int edge_size = 8;
     struct wlr_box geo;
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     int total_height = h + geo.height;
+    
+    /* Check resize edges first */
+    int edge_size = 8;
     
     /* Corners */
     if (x < edge_size && y < edge_size) return HIT_RESIZE_TOP_LEFT;
@@ -251,67 +196,86 @@ enum decor_hit decor_hit_test_visual(struct toplevel *toplevel, double lx, doubl
     if (x >= width - edge_size && y >= total_height - edge_size) return HIT_RESIZE_BOTTOM_RIGHT;
     
     /* Edges */
-    if (y < edge_size) return HIT_RESIZE_TOP;
-    if (y >= total_height - edge_size) return HIT_RESIZE_BOTTOM;
-    if (x < edge_size) return HIT_RESIZE_LEFT;
-    if (x >= width - edge_size) return HIT_RESIZE_RIGHT;
+    if (y < bw) return HIT_RESIZE_TOP;
+    if (y >= total_height - bw) return HIT_RESIZE_BOTTOM;
+    if (x < bw) return HIT_RESIZE_LEFT;
+    if (x >= width - bw) return HIT_RESIZE_RIGHT;
+    
+    /* Titlebar area - use Cairo titlebar hit testing */
+    if (y >= 0 && y < h && d->rendered_titlebar) {
+        enum button_type btn = titlebar_render_hit_test(d->rendered_titlebar, (int)x, (int)y);
+        
+        switch (btn) {
+        case BTN_TYPE_CLOSE:
+            return HIT_CLOSE;
+        case BTN_TYPE_MAXIMIZE:
+            return HIT_MAXIMIZE;
+        case BTN_TYPE_MINIMIZE:
+            return HIT_MINIMIZE;
+        default:
+            return HIT_TITLEBAR;
+        }
+    }
     
     return HIT_NONE;
 }
 
-/* Update hover state for buttons */
-void decor_update_hover_visual(struct toplevel *toplevel, double lx, double ly) {
+void decor_update_hover(struct toplevel *toplevel, double lx, double ly) {
     if (!config.decor.enabled || !toplevel->decor.tree) return;
     
-    visual_config_t *vcfg = visual_get_config();
-    if (!vcfg) return;
+    struct decoration *d = &toplevel->decor;
     
-    render_surface_t *rs = toplevel->decor.rendered_titlebar;
-    if (!rs) return;
+    if (!d->rendered_titlebar) return;
     
     /* Get local coordinates */
-    int dx = toplevel->decor.tree->node.x;
-    int dy = toplevel->decor.tree->node.y;
+    int dx = d->tree->node.x;
+    int dy = d->tree->node.y;
     int x = (int)(lx - dx);
     int y = (int)(ly - dy);
     
-    int h = vcfg->decoration.titlebar.height;
+    int h = g_theme ? g_theme->height : config.decor.height;
     
-    /* Determine which button is hovered */
-    int hover_button = -1;
+    /* Reset all to normal first */
+    enum button_state close_state = BTN_STATE_NORMAL;
+    enum button_state max_state = BTN_STATE_NORMAL;
+    enum button_state min_state = BTN_STATE_NORMAL;
     
+    /* Check if in titlebar */
     if (y >= 0 && y < h) {
-        enum decor_hit hit = decor_hit_test_visual(toplevel, lx, ly);
-        switch (hit) {
-        case HIT_CLOSE: hover_button = 0; break;
-        case HIT_MAXIMIZE: hover_button = 1; break;
-        case HIT_MINIMIZE: hover_button = 2; break;
-        default: break;
+        enum button_type btn = titlebar_render_hit_test(d->rendered_titlebar, x, y);
+        
+        switch (btn) {
+        case BTN_TYPE_CLOSE:
+            close_state = BTN_STATE_HOVER;
+            break;
+        case BTN_TYPE_MAXIMIZE:
+            max_state = BTN_STATE_HOVER;
+            break;
+        case BTN_TYPE_MINIMIZE:
+            min_state = BTN_STATE_HOVER;
+            break;
+        default:
+            break;
         }
     }
     
-    /* Redraw with hover state */
-    const char *title = toplevel->xdg_toplevel->title;
-    if (!title) title = toplevel->xdg_toplevel->app_id;
-    if (!title) title = "Untitled";
-    
-    bool active = (toplevel == get_focused_toplevel(toplevel->server));
-    draw_titlebar(rs, &vcfg->decoration.titlebar, title, active, hover_button);
-    render_surface_commit(rs);
-}
-
-/* Cleanup visual system */
-void visual_cleanup(void) {
-    for (int i = 0; i < g_surface_count; i++) {
-        if (g_titlebar_surfaces[i]) {
-            render_surface_destroy(g_titlebar_surfaces[i]);
-            g_titlebar_surfaces[i] = NULL;
-        }
+    /* Update button states */
+    bool changed = false;
+    if (d->hovered_close != (close_state == BTN_STATE_HOVER)) {
+        d->hovered_close = (close_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_CLOSE, close_state);
+        changed = true;
     }
-    g_surface_count = 0;
-    
-    if (g_visual_config) {
-        free(g_visual_config);
-        g_visual_config = NULL;
+    if (d->hovered_max != (max_state == BTN_STATE_HOVER)) {
+        d->hovered_max = (max_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MAXIMIZE, max_state);
+        changed = true;
     }
+    if (d->hovered_min != (min_state == BTN_STATE_HOVER)) {
+        d->hovered_min = (min_state == BTN_STATE_HOVER);
+        titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MINIMIZE, min_state);
+        changed = true;
+    }
+    
+    (void)changed;
 }

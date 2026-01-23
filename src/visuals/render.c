@@ -2,7 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define WLR_USE_UNSTABLE
 
-#include "visual.h"
+#include "../visual.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>

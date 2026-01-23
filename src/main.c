@@ -13,6 +13,7 @@
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_data_control_v1.h>
 
+#include "decor_visual.h"
 int main(void) {
     wlr_log_init(WLR_DEBUG, NULL);
 
@@ -126,7 +127,10 @@ int main(void) {
     char config_file[512];
     snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", getenv("HOME"));
     config_load(config_file);
-    
+    char visual_config[512];
+    snprintf(visual_config, sizeof(visual_config), 
+             "%s/.config/starview/visual.toml", getenv("HOME"));
+    visual_load_config(visual_config);
  fprintf(stderr, "[GESTURE] Loaded config:\n");
     fprintf(stderr, "[GESTURE]   Touchpad gestures: %d\n", config.gesture_touchpad_count);
     fprintf(stderr, "[GESTURE]   Mouse gestures: %d\n", config.gesture_mouse_count);
