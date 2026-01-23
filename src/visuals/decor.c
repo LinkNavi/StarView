@@ -74,6 +74,22 @@ void decor_create(struct toplevel *toplevel) {
         return;
     }
     
+    /* Reparent toplevel scene tree under decoration tree FIRST */
+    wlr_scene_node_reparent(&toplevel->scene_tree->node, d->tree);
+    wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, h);
+    
+    struct wlr_box geo;
+    wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
+    int window_width = geo.width > 0 ? geo.width : 800;
+    int window_height = geo.height > 0 ? geo.height : 600;
+    
+    /* Create shadow AFTER window content - it will render behind due to raise */
+    d->shadow = create_shadow_buffer(d->tree, window_width, window_height + h, 
+                                      &config.decor.shadow);
+    if (d->shadow) {
+        wlr_scene_node_lower_to_bottom(&d->shadow->node);
+    }
+    
     /* Create Cairo-rendered titlebar */
     fprintf(stderr, "[DECOR]   Creating rendered titlebar...\n");
     d->rendered_titlebar = titlebar_render_create(d->tree, g_global_theme);
@@ -102,15 +118,10 @@ void decor_create(struct toplevel *toplevel) {
         return;
     }
     
-    /* Reparent toplevel scene tree under decoration tree */
-    wlr_scene_node_reparent(&toplevel->scene_tree->node, d->tree);
-    wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, h);
-    
     d->width = 800; /* Will be updated by decor_set_size */
     
     fprintf(stderr, "[DECOR]   ✓ Decoration created successfully!\n");
 }
-
 /* Update decoration size */
 void decor_set_size(struct toplevel *toplevel, int width) {
     if (!config.decor.enabled || !toplevel->decor.tree) {
@@ -139,12 +150,19 @@ void decor_set_size(struct toplevel *toplevel, int width) {
         
         titlebar_render_update(d->rendered_titlebar, g_global_theme, width, title, active);
     }
+
+    if (d->shadow) {
+        wlr_scene_node_destroy(&d->shadow->node);
+        d->shadow = NULL;
+    }
     
-    /* Get actual content height */
     struct wlr_box geo;
     wlr_xdg_surface_get_geometry(toplevel->xdg_toplevel->base, &geo);
     int content_height = geo.height > 0 ? geo.height : 100;
     int total_height = h + content_height;
+    
+    d->shadow = create_shadow_buffer(d->tree, width, total_height, &config.decor.shadow);
+    
     
     /* Resize borders */
     if (d->border_top) {
@@ -213,7 +231,10 @@ void decor_destroy(struct toplevel *toplevel) {
         titlebar_render_destroy(toplevel->decor.rendered_titlebar);
         toplevel->decor.rendered_titlebar = NULL;
     }
-    
+    if (toplevel->decor.shadow) {
+        wlr_scene_node_destroy(&toplevel->decor.shadow->node);
+        toplevel->decor.shadow = NULL;
+    }
     wlr_scene_node_destroy(&toplevel->decor.tree->node);
     toplevel->decor.tree = NULL;
     toplevel->decor.border_top = NULL;

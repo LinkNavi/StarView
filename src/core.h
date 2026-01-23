@@ -214,7 +214,7 @@ struct decoration {
   struct wlr_scene_rect *border_bottom;
   struct wlr_scene_rect *border_left;
   struct wlr_scene_rect *border_right;
-
+struct wlr_scene_buffer *shadow;
   /* Cairo-rendered titlebar */
   struct rendered_titlebar *rendered_titlebar;
 

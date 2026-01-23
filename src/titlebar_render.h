@@ -9,6 +9,7 @@ struct wlr_scene_tree;
 struct wlr_scene_buffer;
 struct toplevel;
 struct decor_config;
+struct shadow_config;  // Forward declaration
 /*
  * Button types
  */
@@ -242,6 +243,11 @@ int titlebar_theme_save_file(struct titlebar_theme *theme, const char *path);
 // In titlebar_render.h
 int titlebar_theme_load_from_config(struct titlebar_theme *theme, 
                                      struct decor_config *config);
+struct wlr_scene_buffer *create_shadow_buffer(
+    struct wlr_scene_tree *parent,
+    int window_width,
+    int window_height,
+    struct shadow_config *shadow);
 /* Color helpers */
 struct color color_from_hex(uint32_t hex);
 struct color color_from_rgba(float r, float g, float b, float a);

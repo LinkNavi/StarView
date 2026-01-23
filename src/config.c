@@ -462,6 +462,43 @@ static uint32_t parse_color_hex(const char *hex) {
     // Shift left 8 bits and add full alpha
     return (color << 8) | 0xFF;
 }
+
+static void parse_shadow_config(toml_table_t *shadow_table, struct shadow_config *shadow) {
+    if (!shadow_table) {
+        // Defaults
+        shadow->enabled = true;
+        shadow->offset_x = 0;
+        shadow->offset_y = 8;
+        shadow->blur_radius = 20;
+        shadow->opacity = 0.5f;
+        shadow->color = 0x000000FF;
+        return;
+    }
+    
+    toml_datum_t v;
+    
+    v = toml_bool_in(shadow_table, "enabled");
+    if (v.ok) shadow->enabled = v.u.b;
+    
+    v = toml_int_in(shadow_table, "offset_x");
+    if (v.ok) shadow->offset_x = v.u.i;
+    
+    v = toml_int_in(shadow_table, "offset_y");
+    if (v.ok) shadow->offset_y = v.u.i;
+    
+    v = toml_int_in(shadow_table, "blur_radius");
+    if (v.ok) shadow->blur_radius = v.u.i;
+    
+    v = toml_double_in(shadow_table, "opacity");
+    if (v.ok) shadow->opacity = v.u.d;
+    
+    v = toml_string_in(shadow_table, "color");
+    if (v.ok) {
+        shadow->color = parse_color_hex(v.u.s);
+        free(v.u.s);
+    }
+}
+
 void parse_decoration(toml_table_t *decor) {
     if (!decor) return;
     
@@ -556,32 +593,12 @@ void parse_decoration(toml_table_t *decor) {
     
     v = toml_bool_in(decor, "buttons_left");
     if (v.ok) config.decor.buttons_left = v.u.b;
+
+toml_table_t *shadow_table = toml_table_in(decor, "shadow");
+parse_shadow_config(shadow_table, &config.decor.shadow);
+
 }
 
-static void parse_shadow_config(struct shadow_config *shadow, 
-                                toml_table_t *section,
-                                const char *key) {
-    toml_table_t *shadow_table = toml_table_in(section, key);
-    if (!shadow_table) {
-        // Set defaults
-        shadow->enabled = true;
-        shadow->offset_x = 0;
-        shadow->offset_y = 8;
-        shadow->blur_radius = 20;
-        shadow->opacity = 0.5f;
-        shadow->color = 0x000000FF;
-        return;
-    }
-    
-    shadow->enabled = toml_bool_in(shadow_table, "enabled");
-    shadow->offset_x = toml_int_in(shadow_table, "offset_x").ok;
-    shadow->offset_y = get_int(shadow_table, "offset_y", 8);
-    shadow->blur_radius = get_int(shadow_table, "blur_radius", 20);
-    shadow->opacity = get_float(shadow_table, "opacity", 0.5f);
-    
-    const char *color_str = get_string(shadow_table, "color", "#000000");
-    shadow->color = parse_color_hex(color_str);
-}
 static void parse_animation(toml_table_t *anim) {
     if (!anim) return;
     
