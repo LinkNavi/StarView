@@ -1184,16 +1184,16 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
     theme->corner_radius_top = config->corner_radius >= 0 ? config->corner_radius : 10;
     
     /* Colors - convert from uint32_t hex to struct color */
-    theme->bg_color = color_from_hex(config->bg_color << 8 | 0xFF);
-    theme->bg_color_inactive = color_from_hex(config->bg_color_inactive << 8 | 0xFF);
+    theme->bg_color = color_from_hex(config->bg_color);
+    theme->bg_color_inactive = color_from_hex(config->bg_color_inactive);
     
     /* Title settings */
     theme->title.font_size = config->font_size > 0 ? config->font_size : 12;
     strncpy(theme->title.font_family, config->font, 
             sizeof(theme->title.font_family) - 1);
     theme->title.font_weight = 600;
-    theme->title.color = color_from_hex(config->title_color << 8 | 0xFF);
-    theme->title_inactive.color = color_from_hex(config->title_color_inactive << 8 | 0xFF);
+    theme->title.color = color_from_hex(config->title_color);
+    theme->title_inactive.color = color_from_hex(config->title_color_inactive);
     theme->title_align = ALIGN_CENTER;
     
     /* Button layout */
@@ -1207,12 +1207,12 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
     theme->btn_close.width = config->button_size > 0 ? config->button_size : 16;
     theme->btn_close.height = config->button_size > 0 ? config->button_size : 16;
     
-    theme->btn_close.normal.bg_color = color_from_hex(config->btn_close_color << 8 | 0xFF);
+    theme->btn_close.normal.bg_color = color_from_hex(config->btn_close_color);
     theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
     theme->btn_close.normal.icon_scale = 0.0f;
     
-    theme->btn_close.hover.bg_color = color_from_hex(config->btn_close_hover << 8 | 0xFF);
-    theme->btn_close.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_close.hover.bg_color = color_from_hex(config->btn_close_hover);
+    theme->btn_close.hover.icon_color = color_from_hex(0xFFFFFFFF);
     theme->btn_close.hover.icon_scale = 0.65f;
     
     /* Maximize button */
@@ -1221,12 +1221,12 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
     theme->btn_maximize.width = config->button_size > 0 ? config->button_size : 16;
     theme->btn_maximize.height = config->button_size > 0 ? config->button_size : 16;
     
-    theme->btn_maximize.normal.bg_color = color_from_hex(config->btn_max_color << 8 | 0xFF);
+    theme->btn_maximize.normal.bg_color = color_from_hex(config->btn_max_color);
     theme->btn_maximize.normal.icon_color = color_from_hex(0x00000000);
     theme->btn_maximize.normal.icon_scale = 0.0f;
     
-    theme->btn_maximize.hover.bg_color = color_from_hex(config->btn_max_hover << 8 | 0xFF);
-    theme->btn_maximize.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_maximize.hover.bg_color = color_from_hex(config->btn_max_hover);
+    theme->btn_maximize.hover.icon_color = color_from_hex(0xFFFFFFFF);
     theme->btn_maximize.hover.icon_scale = 0.6f;
     
     /* Minimize button */
@@ -1235,21 +1235,20 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
     theme->btn_minimize.width = config->button_size > 0 ? config->button_size : 16;
     theme->btn_minimize.height = config->button_size > 0 ? config->button_size : 16;
     
-    theme->btn_minimize.normal.bg_color = color_from_hex(config->btn_min_color << 8 | 0xFF);
+    theme->btn_minimize.normal.bg_color = color_from_hex(config->btn_min_color);
     theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
     theme->btn_minimize.normal.icon_scale = 0.0f;
     
-    theme->btn_minimize.hover.bg_color = color_from_hex(config->btn_min_hover << 8 | 0xFF);
-    theme->btn_minimize.hover.icon_color = color_from_hex(0x000000ff);
+    theme->btn_minimize.hover.bg_color = color_from_hex(config->btn_min_hover);
+    theme->btn_minimize.hover.icon_color = color_from_hex(0xFFFFFFFF);
     theme->btn_minimize.hover.icon_scale = 0.6f;
     
     theme->inactive_opacity = 0.85f;
     
     printf("✓ Loaded titlebar theme from config\n");
-    // Change from %d to %.0f for the last format specifier
-printf("  Height: %d, Buttons: %.0f×%.0f, Corner radius: %.0f\n", 
-       theme->height, theme->btn_close.width, theme->btn_close.height,
-       theme->corner_radius_top);
+    printf("  Height: %d, Buttons: %.0f×%.0f, Corner radius: %.0f\n", 
+           theme->height, theme->btn_close.width, theme->btn_close.height,
+           theme->corner_radius_top);
     
     return 0;
 }
