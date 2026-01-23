@@ -1,8 +1,9 @@
-/* decor_visual.h - Visual system integration header */
+/* decor_visual.h - Visual system integration header (fixed) */
 #ifndef DECOR_VISUAL_H
 #define DECOR_VISUAL_H
 
-#include "visual.h"
+#include "visual_types.h"
+#include "titlebar_render.h"
 #include "core.h"
 
 /* Initialize visual system with a theme preset */

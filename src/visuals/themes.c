@@ -1,7 +1,7 @@
 /* visual_themes.c - Theme presets */
 #define _POSIX_C_SOURCE 200809L
 
-#include "../visual.h"
+#include "../visual_types.h"
 #include <string.h>
 
 /* ============================================================================

@@ -37,11 +37,13 @@ src = [
   'src/toml.c',
   'src/gesture.c',
 
-  'src/visuals/visual.c',
-  'src/visuals/draw.c',
 
-  'src/visuals/config.c',
+
+  'src/visuals/stub.c',
   'src/visuals/decor.c',
+
+
+
   'src/visuals/themes.c',
 
   'src/decor.c',
