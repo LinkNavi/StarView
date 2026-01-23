@@ -153,7 +153,7 @@ static void output_request_state(struct wl_listener *listener, void *data) {
   }
 }
 
-/* Add to output_destroy() in core.c */
+
 static void output_destroy(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, destroy);
   

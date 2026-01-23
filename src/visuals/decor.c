@@ -151,7 +151,7 @@ void decor_set_size(struct toplevel *toplevel, int width) {
     }
 }
 
-/* Update shadow position when window moves */
+
 void decor_set_position(struct toplevel *toplevel, int x, int y) {
     if (!config.decor.enabled || !toplevel->decor.tree) return;
     

@@ -76,7 +76,7 @@ void anim_start(struct toplevel *toplevel, enum anim_type type, float end_x,
                 float end_y, float end_w, float end_h,
                 void (*on_complete)(void *), void *data) {
   if (!config.anim.enabled || type == ANIM_NONE) {
-    // No animation, just set final values
+
     if (toplevel->decor.tree) {
       wlr_scene_node_set_position(&toplevel->decor.tree->node, (int)end_x,
                                   (int)end_y);

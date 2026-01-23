@@ -299,9 +299,7 @@ visual_config_t visual_config_default(void) {
     return cfg;
 }
 
-/* ============================================================================
- * THEME PRESETS - Simplified versions
- * ============================================================================ */
+
 
 static visual_config_t theme_macos_light(void) {
     visual_config_t cfg = visual_config_default();

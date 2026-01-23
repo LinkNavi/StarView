@@ -70,11 +70,11 @@ static struct cairo_buffer *cairo_buffer_create(int width, int height) {
     return buffer;
 }
 
-/* Load PNG with debugging */
+
 static cairo_surface_t *load_image(const char *path) {
     fprintf(stderr, "[BG] Attempting to load image: %s\n", path);
     
-    /* Check if file exists */
+
     FILE *f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "[BG] ERROR: Cannot open file: %s\n", path);
