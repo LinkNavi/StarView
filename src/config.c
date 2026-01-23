@@ -558,6 +558,30 @@ void parse_decoration(toml_table_t *decor) {
     if (v.ok) config.decor.buttons_left = v.u.b;
 }
 
+static void parse_shadow_config(struct shadow_config *shadow, 
+                                toml_table_t *section,
+                                const char *key) {
+    toml_table_t *shadow_table = toml_table_in(section, key);
+    if (!shadow_table) {
+        // Set defaults
+        shadow->enabled = true;
+        shadow->offset_x = 0;
+        shadow->offset_y = 8;
+        shadow->blur_radius = 20;
+        shadow->opacity = 0.5f;
+        shadow->color = 0x000000FF;
+        return;
+    }
+    
+    shadow->enabled = toml_bool_in(shadow_table, "enabled");
+    shadow->offset_x = toml_int_in(shadow_table, "offset_x").ok;
+    shadow->offset_y = get_int(shadow_table, "offset_y", 8);
+    shadow->blur_radius = get_int(shadow_table, "blur_radius", 20);
+    shadow->opacity = get_float(shadow_table, "opacity", 0.5f);
+    
+    const char *color_str = get_string(shadow_table, "color", "#000000");
+    shadow->color = parse_color_hex(color_str);
+}
 static void parse_animation(toml_table_t *anim) {
     if (!anim) return;
     

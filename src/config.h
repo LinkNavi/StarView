@@ -146,6 +146,15 @@ struct anim_config {
 /*
  * DECORATION CONFIG
  */
+struct shadow_config {
+    bool enabled;         // Enable/disable shadows
+    int offset_x;         // Horizontal offset (0-10)
+    int offset_y;         // Vertical offset (5-15)
+    int blur_radius;      // Blur amount (10-40)
+    float opacity;        // Shadow opacity (0.3-0.6)
+    uint32_t color;       // Shadow color (usually black: 0x000000FF)
+};
+
 struct decor_config {
     bool enabled;
     
@@ -172,6 +181,10 @@ struct decor_config {
     /* Font */
     char font[64];
     int font_size;
+    
+    /* Shadow configuration */
+    struct shadow_config shadow;        // Window shadow settings
+    struct shadow_config shadow_inactive; // Shadow for unfocused windows (optional)
     
     /* Layout */
     bool buttons_left;

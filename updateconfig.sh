@@ -136,6 +136,22 @@ minimize_hover = "#f5c2e7"
 font = "sans"
 font_size = 12
 buttons_left = false
+
+[decoration.shadow]
+enabled = true
+offset_x = 0          # Center horizontally
+offset_y = 8          # Drop down 8px
+blur_radius = 20      # Soft blur
+opacity = 0.5         # 50% transparent
+color = "#000000"     # Black shadow
+
+[decoration.shadow_inactive]
+enabled = true
+offset_x = 0
+offset_y = 4          # Lighter drop for inactive
+blur_radius = 15
+opacity = 0.3         # More transparent
+color = "#000000"
 EOF
 
 # Create animation.toml

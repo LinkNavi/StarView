@@ -1,4 +1,4 @@
-/* decor.c - Window decoration using configurable visual system */
+
 #define _POSIX_C_SOURCE 200809L
 #define WLR_USE_UNSTABLE
 
@@ -7,39 +7,11 @@
 #include "../titlebar_render.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <wlr/types/wlr_scene.h>
 
-/* Global theme instance - can be changed at runtime */
-static struct titlebar_theme *g_theme = NULL;
-static enum theme_preset g_current_preset = THEME_PRESET_DEFAULT;
-
-/* Ensure theme is initialized */
-static void ensure_theme_initialized(void) {
-    if (g_theme) return;
-    
-    g_theme = titlebar_theme_create();
-    if (g_theme) {
-        titlebar_theme_load_preset(g_theme, g_current_preset);
-        titlebar_set_global_theme(g_theme);
-    }
-}
-
-/* Set theme preset - can be called from config or keybindings */
-void decor_set_theme_preset(enum theme_preset preset) {
-    g_current_preset = preset;
-    
-    if (g_theme) {
-        titlebar_theme_load_preset(g_theme, preset);
-    } else {
-        ensure_theme_initialized();
-    }
-}
-
-/* Get current theme for external modification */
-struct titlebar_theme *decor_get_theme(void) {
-    ensure_theme_initialized();
-    return g_theme;
-}
+/* Global theme - managed by main.c */
+static struct titlebar_theme *g_global_theme = NULL;
 
 /* Color conversion helper */
 static void color_to_float(uint32_t color, float out[4]) {
@@ -49,24 +21,67 @@ static void color_to_float(uint32_t color, float out[4]) {
     out[3] = (color & 0xff) / 255.0f;
 }
 
+/* Set global theme (called from main.c) */
+void decor_set_global_theme(struct titlebar_theme *theme) {
+    g_global_theme = theme;
+    fprintf(stderr, "[DECOR] Global theme set: %p\n", (void*)theme);
+    if (theme) {
+        fprintf(stderr, "[DECOR]   height=%d, bg_color=r:%.2f g:%.2f b:%.2f\n",
+                theme->height, theme->bg_color.r, theme->bg_color.g, theme->bg_color.b);
+    }
+}
+
+/* Get global theme */
+struct titlebar_theme *decor_get_global_theme(void) {
+    return g_global_theme;
+}
+
+/* Create window decorations */
 void decor_create(struct toplevel *toplevel) {
-    if (!config.decor.enabled) return;
+    fprintf(stderr, "[DECOR] decor_create() called for window\n");
+    fprintf(stderr, "[DECOR]   config.decor.enabled = %d\n", config.decor.enabled);
+    fprintf(stderr, "[DECOR]   global_theme = %p\n", (void*)g_global_theme);
     
-    ensure_theme_initialized();
+    if (!config.decor.enabled) {
+        fprintf(stderr, "[DECOR]   SKIPPED: decorations disabled in config\n");
+        return;
+    }
+    
+    if (!g_global_theme) {
+        fprintf(stderr, "[DECOR]   WARNING: No global theme set! Creating default theme.\n");
+        g_global_theme = titlebar_theme_create();
+        if (g_global_theme) {
+            titlebar_theme_load_from_config(g_global_theme, &config.decor);
+            fprintf(stderr, "[DECOR]   Created default theme: height=%d\n", g_global_theme->height);
+        } else {
+            fprintf(stderr, "[DECOR]   ERROR: Failed to create default theme!\n");
+            return;
+        }
+    }
     
     struct server *server = toplevel->server;
     struct decoration *d = &toplevel->decor;
     
-    /* Create decoration tree as parent of window */
-    d->tree = wlr_scene_tree_create(server->layer_windows);
-    if (!d->tree) return;
-    
-    int h = g_theme ? g_theme->height : config.decor.height;
+    int h = g_global_theme->height;
     int bw = config.border_width;
     
+    fprintf(stderr, "[DECOR]   Creating decoration tree (height=%d, border=%d)\n", h, bw);
+    
+    /* Create decoration tree as parent of window */
+    d->tree = wlr_scene_tree_create(server->layer_windows);
+    if (!d->tree) {
+        fprintf(stderr, "[DECOR]   ERROR: Failed to create scene tree!\n");
+        return;
+    }
+    
     /* Create Cairo-rendered titlebar */
-    if (g_theme) {
-        d->rendered_titlebar = titlebar_render_create(d->tree, g_theme);
+    fprintf(stderr, "[DECOR]   Creating rendered titlebar...\n");
+    d->rendered_titlebar = titlebar_render_create(d->tree, g_global_theme);
+    if (!d->rendered_titlebar) {
+        fprintf(stderr, "[DECOR]   ERROR: Failed to create rendered titlebar!\n");
+        wlr_scene_node_destroy(&d->tree->node);
+        d->tree = NULL;
+        return;
     }
     
     /* Create borders using scene rects */
@@ -78,31 +93,51 @@ void decor_create(struct toplevel *toplevel) {
     d->border_left = wlr_scene_rect_create(d->tree, bw, 100, border_color);
     d->border_right = wlr_scene_rect_create(d->tree, bw, 100, border_color);
     
+    if (!d->border_top || !d->border_bottom || !d->border_left || !d->border_right) {
+        fprintf(stderr, "[DECOR]   ERROR: Failed to create borders!\n");
+        if (d->rendered_titlebar) titlebar_render_destroy(d->rendered_titlebar);
+        wlr_scene_node_destroy(&d->tree->node);
+        d->tree = NULL;
+        d->rendered_titlebar = NULL;
+        return;
+    }
+    
     /* Reparent toplevel scene tree under decoration tree */
     wlr_scene_node_reparent(&toplevel->scene_tree->node, d->tree);
     wlr_scene_node_set_position(&toplevel->scene_tree->node, 0, h);
     
-    d->width = 100;
+    d->width = 800; /* Will be updated by decor_set_size */
+    
+    fprintf(stderr, "[DECOR]   ✓ Decoration created successfully!\n");
 }
 
+/* Update decoration size */
 void decor_set_size(struct toplevel *toplevel, int width) {
-    if (!config.decor.enabled || !toplevel->decor.tree) return;
+    if (!config.decor.enabled || !toplevel->decor.tree) {
+        return;
+    }
+    
+    if (!g_global_theme) {
+        fprintf(stderr, "[DECOR] WARNING: No global theme in decor_set_size!\n");
+        return;
+    }
     
     struct decoration *d = &toplevel->decor;
     
-    int h = g_theme ? g_theme->height : config.decor.height;
+    int h = g_global_theme->height;
     int bw = config.border_width;
     
     d->width = width;
     
     /* Update Cairo titlebar */
-    if (d->rendered_titlebar && g_theme) {
+    if (d->rendered_titlebar) {
         const char *title = toplevel->xdg_toplevel->title;
         if (!title) title = toplevel->xdg_toplevel->app_id;
         if (!title) title = "Untitled";
         
         bool active = (toplevel == get_focused_toplevel(toplevel->server));
-        titlebar_render_update(d->rendered_titlebar, g_theme, width, title, active);
+        
+        titlebar_render_update(d->rendered_titlebar, g_global_theme, width, title, active);
     }
     
     /* Get actual content height */
@@ -112,31 +147,46 @@ void decor_set_size(struct toplevel *toplevel, int width) {
     int total_height = h + content_height;
     
     /* Resize borders */
-    wlr_scene_rect_set_size(d->border_top, width + bw * 2, bw);
-    wlr_scene_node_set_position(&d->border_top->node, -bw, -bw);
+    if (d->border_top) {
+        wlr_scene_rect_set_size(d->border_top, width + bw * 2, bw);
+        wlr_scene_node_set_position(&d->border_top->node, -bw, -bw);
+    }
     
-    wlr_scene_rect_set_size(d->border_bottom, width + bw * 2, bw);
-    wlr_scene_node_set_position(&d->border_bottom->node, -bw, total_height);
+    if (d->border_bottom) {
+        wlr_scene_rect_set_size(d->border_bottom, width + bw * 2, bw);
+        wlr_scene_node_set_position(&d->border_bottom->node, -bw, total_height);
+    }
     
-    wlr_scene_rect_set_size(d->border_left, bw, total_height + bw * 2);
-    wlr_scene_node_set_position(&d->border_left->node, -bw, -bw);
+    if (d->border_left) {
+        wlr_scene_rect_set_size(d->border_left, bw, total_height + bw * 2);
+        wlr_scene_node_set_position(&d->border_left->node, -bw, -bw);
+    }
     
-    wlr_scene_rect_set_size(d->border_right, bw, total_height + bw * 2);
-    wlr_scene_node_set_position(&d->border_right->node, width, -bw);
+    if (d->border_right) {
+        wlr_scene_rect_set_size(d->border_right, bw, total_height + bw * 2);
+        wlr_scene_node_set_position(&d->border_right->node, width, -bw);
+    }
 }
 
+/* Update decoration (focus state) */
 void decor_update(struct toplevel *toplevel, bool focused) {
-    if (!config.decor.enabled || !toplevel->decor.tree) return;
+    if (!config.decor.enabled || !toplevel->decor.tree) {
+        return;
+    }
+    
+    if (!g_global_theme) {
+        return;
+    }
     
     struct decoration *d = &toplevel->decor;
     
     /* Update Cairo titlebar for focus state */
-    if (d->rendered_titlebar && g_theme) {
+    if (d->rendered_titlebar) {
         const char *title = toplevel->xdg_toplevel->title;
         if (!title) title = toplevel->xdg_toplevel->app_id;
         if (!title) title = "Untitled";
         
-        titlebar_render_update(d->rendered_titlebar, g_theme, d->width, title, focused);
+        titlebar_render_update(d->rendered_titlebar, g_global_theme, d->width, title, focused);
     }
     
     /* Update border colors */
@@ -147,14 +197,17 @@ void decor_update(struct toplevel *toplevel, bool focused) {
         color_to_float(config.border_color_inactive, border);
     }
     
-    wlr_scene_rect_set_color(d->border_top, border);
-    wlr_scene_rect_set_color(d->border_bottom, border);
-    wlr_scene_rect_set_color(d->border_left, border);
-    wlr_scene_rect_set_color(d->border_right, border);
+    if (d->border_top) wlr_scene_rect_set_color(d->border_top, border);
+    if (d->border_bottom) wlr_scene_rect_set_color(d->border_bottom, border);
+    if (d->border_left) wlr_scene_rect_set_color(d->border_left, border);
+    if (d->border_right) wlr_scene_rect_set_color(d->border_right, border);
 }
 
+/* Destroy decoration */
 void decor_destroy(struct toplevel *toplevel) {
-    if (!toplevel->decor.tree) return;
+    if (!toplevel->decor.tree) {
+        return;
+    }
     
     if (toplevel->decor.rendered_titlebar) {
         titlebar_render_destroy(toplevel->decor.rendered_titlebar);
@@ -163,10 +216,21 @@ void decor_destroy(struct toplevel *toplevel) {
     
     wlr_scene_node_destroy(&toplevel->decor.tree->node);
     toplevel->decor.tree = NULL;
+    toplevel->decor.border_top = NULL;
+    toplevel->decor.border_bottom = NULL;
+    toplevel->decor.border_left = NULL;
+    toplevel->decor.border_right = NULL;
 }
 
+/* Hit test for decoration */
 enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
-    if (!config.decor.enabled || !toplevel->decor.tree) return HIT_NONE;
+    if (!config.decor.enabled || !toplevel->decor.tree) {
+        return HIT_NONE;
+    }
+    
+    if (!g_global_theme) {
+        return HIT_NONE;
+    }
     
     struct decoration *d = &toplevel->decor;
     
@@ -178,7 +242,7 @@ enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
     double x = lx - dx;
     double y = ly - dy;
     
-    int h = g_theme ? g_theme->height : config.decor.height;
+    int h = g_global_theme->height;
     int bw = config.border_width;
     int width = d->width;
     
@@ -220,12 +284,17 @@ enum decor_hit decor_hit_test(struct toplevel *toplevel, double lx, double ly) {
     return HIT_NONE;
 }
 
+/* Update hover state */
 void decor_update_hover(struct toplevel *toplevel, double lx, double ly) {
-    if (!config.decor.enabled || !toplevel->decor.tree) return;
+    if (!config.decor.enabled || !toplevel->decor.tree || !g_global_theme) {
+        return;
+    }
     
     struct decoration *d = &toplevel->decor;
     
-    if (!d->rendered_titlebar) return;
+    if (!d->rendered_titlebar) {
+        return;
+    }
     
     /* Get local coordinates */
     int dx = d->tree->node.x;
@@ -233,7 +302,7 @@ void decor_update_hover(struct toplevel *toplevel, double lx, double ly) {
     int x = (int)(lx - dx);
     int y = (int)(ly - dy);
     
-    int h = g_theme ? g_theme->height : config.decor.height;
+    int h = g_global_theme->height;
     
     /* Reset all to normal first */
     enum button_state close_state = BTN_STATE_NORMAL;
@@ -259,23 +328,17 @@ void decor_update_hover(struct toplevel *toplevel, double lx, double ly) {
         }
     }
     
-    /* Update button states */
-    bool changed = false;
+    /* Update button states if changed */
     if (d->hovered_close != (close_state == BTN_STATE_HOVER)) {
         d->hovered_close = (close_state == BTN_STATE_HOVER);
         titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_CLOSE, close_state);
-        changed = true;
     }
     if (d->hovered_max != (max_state == BTN_STATE_HOVER)) {
         d->hovered_max = (max_state == BTN_STATE_HOVER);
         titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MAXIMIZE, max_state);
-        changed = true;
     }
     if (d->hovered_min != (min_state == BTN_STATE_HOVER)) {
         d->hovered_min = (min_state == BTN_STATE_HOVER);
         titlebar_render_set_button_state(d->rendered_titlebar, BTN_TYPE_MINIMIZE, min_state);
-        changed = true;
     }
-    
-    (void)changed;
 }
