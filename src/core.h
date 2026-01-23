@@ -214,7 +214,8 @@ struct decoration {
   struct wlr_scene_rect *border_bottom;
   struct wlr_scene_rect *border_left;
   struct wlr_scene_rect *border_right;
-struct wlr_scene_buffer *shadow;
+  struct wlr_scene_buffer *shadow;
+  
   /* Cairo-rendered titlebar */
   struct rendered_titlebar *rendered_titlebar;
 
@@ -222,6 +223,10 @@ struct wlr_scene_buffer *shadow;
   bool hovered_close;
   bool hovered_max;
   bool hovered_min;
+  
+  /* Shadow cache */
+  int cached_shadow_width;
+  int cached_shadow_height;
 };
 
 struct toplevel {
