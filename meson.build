@@ -36,9 +36,7 @@ src = [
   'src/config.c',
   'src/toml.c',
   'src/gesture.c',
-
-
-
+  'src/visual.c',
   'src/visuals/stub.c',
   'src/visuals/decor.c',
 
@@ -46,7 +44,7 @@ src = [
 
   'src/visuals/themes.c',
 
-  'src/decor.c',
+
   'src/anim.c',
   'src/rules.c',
   'src/util.c',

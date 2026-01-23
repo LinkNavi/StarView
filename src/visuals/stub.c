@@ -7,17 +7,8 @@
 #include <string.h>
 
 /* Stub function - returns empty config */
-visual_config_t visual_config_default(void) {
-    visual_config_t cfg;
-    memset(&cfg, 0, sizeof(cfg));
-    return cfg;
-}
-
-/* Stub function - returns empty config */  
-visual_config_t visual_config_preset(theme_preset_t preset) {
-    (void)preset;
-    return visual_config_default();
-}
+visual_config_t visual_config_default(void);
+visual_config_t visual_config_preset(theme_preset_t preset);
 
 /* Stub load function - does nothing */
 int visual_config_load(visual_config_t *config, const char *path) {

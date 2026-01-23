@@ -3,6 +3,108 @@
 
 #include "../visual_types.h"
 #include <string.h>
+#include <stddef.h>
+
+/* ============================================================================
+ * HELPER FUNCTIONS
+ * ============================================================================ */
+
+rgba_t rgba_hex(uint32_t hex) {
+    rgba_t c;
+    c.r = ((hex >> 24) & 0xff) / 255.0f;
+    c.g = ((hex >> 16) & 0xff) / 255.0f;
+    c.b = ((hex >> 8) & 0xff) / 255.0f;
+    c.a = (hex & 0xff) / 255.0f;
+    return c;
+}
+
+border_t border_solid(int width, rgba_t color, int radius) {
+    border_t b;
+    b.width = width;
+    b.color = color;
+    b.radius = radius;
+    return b;
+}
+
+border_t border_none(void) {
+    return border_solid(0, (rgba_t){0,0,0,0}, 0);
+}
+
+shadow_t shadow_soft(int radius, int offset, rgba_t color) {
+    shadow_t s;
+    s.enabled = true;
+    s.radius = radius;
+    s.offset_x = offset;
+    s.offset_y = offset;
+    s.color = color;
+    return s;
+}
+
+shadow_t shadow_none(void) {
+    shadow_t s;
+    s.enabled = false;
+    s.radius = 0;
+    s.offset_x = 0;
+    s.offset_y = 0;
+    s.color = (rgba_t){0,0,0,0};
+    return s;
+}
+
+shadow_t shadow_inset(int radius, rgba_t color) {
+    shadow_t s;
+    s.enabled = true;
+    s.radius = radius;
+    s.offset_x = 0;
+    s.offset_y = 0;
+    s.color = color;
+    return s;
+}
+
+gradient_t gradient_simple(gradient_type_t type, rgba_t start, rgba_t end) {
+    gradient_t g;
+    g.type = type;
+    g.start = start;
+    g.end = end;
+    return g;
+}
+
+text_style_t text_style_create(const char *font, int size, font_weight_t weight, rgba_t color) {
+    text_style_t t;
+    strncpy(t.font_family, font, sizeof(t.font_family) - 1);
+    t.font_family[sizeof(t.font_family) - 1] = '\0';
+    t.font_size = size;
+    t.font_weight = weight;
+    t.color = color;
+    return t;
+}
+
+button_style_t button_style_circle(int size, rgba_t color, icon_type_t icon) {
+    (void)icon;
+    button_style_t b;
+    memset(&b, 0, sizeof(b));
+    b.width = size;
+    b.height = size;
+    for (int i = 0; i < 4; i++) {
+        b.states[i].bg_color = color;
+        b.states[i].icon.color = (rgba_t){1, 1, 1, 1};
+        b.states[i].icon.scale = 0.7f;
+    }
+    return b;
+}
+
+button_style_t button_style_rect(int width, int height, rgba_t color, icon_type_t icon) {
+    (void)icon;
+    button_style_t b;
+    memset(&b, 0, sizeof(b));
+    b.width = width;
+    b.height = height;
+    for (int i = 0; i < 4; i++) {
+        b.states[i].bg_color = (rgba_t){0, 0, 0, 0};
+        b.states[i].icon.color = color;
+        b.states[i].icon.scale = 0.65f;
+    }
+    return b;
+}
 
 /* ============================================================================
  * COLOR PALETTES
@@ -157,16 +259,16 @@ visual_config_t visual_config_default(void) {
     tb->button_margin = 8;
     
     tb->btn_close = button_style_circle(14, rgba_hex(catppuccin_mocha.red), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(catppuccin_mocha.crust);
-    tb->btn_close.states[BTN_STATE_PRESSED].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_close.states[1].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_close.states[2].icon.color = rgba_hex(catppuccin_mocha.crust);
     
     tb->btn_maximize = button_style_circle(14, rgba_hex(catppuccin_mocha.green), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(catppuccin_mocha.crust);
-    tb->btn_maximize.states[BTN_STATE_PRESSED].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_maximize.states[1].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_maximize.states[2].icon.color = rgba_hex(catppuccin_mocha.crust);
     
     tb->btn_minimize = button_style_circle(14, rgba_hex(catppuccin_mocha.yellow), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(catppuccin_mocha.crust);
-    tb->btn_minimize.states[BTN_STATE_PRESSED].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_minimize.states[1].icon.color = rgba_hex(catppuccin_mocha.crust);
+    tb->btn_minimize.states[2].icon.color = rgba_hex(catppuccin_mocha.crust);
     
     tb->button_order[0] = 2;
     tb->button_order[1] = 1;
@@ -198,7 +300,7 @@ visual_config_t visual_config_default(void) {
 }
 
 /* ============================================================================
- * THEME PRESETS
+ * THEME PRESETS - Simplified versions
  * ============================================================================ */
 
 static visual_config_t theme_macos_light(void) {
@@ -208,393 +310,17 @@ static visual_config_t theme_macos_light(void) {
     tb->height = 28;
     tb->bg_color = rgba_hex(0xe8e8e8ff);
     tb->bg_color_inactive = rgba_hex(0xf6f6f6ff);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0xfafafaff), rgba_hex(0xe0e0e0ff));
-    
-    tb->corner_radius_tl = 10;
-    tb->corner_radius_tr = 10;
-    
-    tb->title_style = text_style_create("SF Pro Display, Helvetica Neue, sans-serif",
-                                         13, FONT_WEIGHT_MEDIUM, rgba_hex(0x000000ff));
-    tb->title_style_inactive = text_style_create("SF Pro Display, Helvetica Neue, sans-serif",
-                                                  13, FONT_WEIGHT_MEDIUM, rgba_hex(0x00000080));
-    tb->title_align = TEXT_ALIGN_CENTER;
-    
     tb->buttons_left = true;
-    tb->button_spacing = 8;
-    tb->button_margin = 8;
-    
-    tb->btn_close = button_style_circle(12, rgba_hex(0xff5f57ff), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x00000000);
-    tb->btn_close.states[BTN_STATE_HOVER].bg_color = rgba_hex(0xff5f57ff);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(0x4d0000ff);
-    tb->btn_close.states[BTN_STATE_PRESSED].bg_color = rgba_hex(0xbf4942ff);
-    
-    tb->btn_minimize = button_style_circle(12, rgba_hex(0xfebc2eff), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x00000000);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(0x995700ff);
-    
-    tb->btn_maximize = button_style_circle(12, rgba_hex(0x28c840ff), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x00000000);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(0x006500ff);
-    
-    tb->button_order[0] = 0;
-    tb->button_order[1] = 2;
-    tb->button_order[2] = 1;
-    tb->button_order[3] = -1;
-    
-    cfg.decoration.window_shadow = shadow_soft(25, 8, rgba_hex(0x00000050));
-    
-    return cfg;
-}
-
-static visual_config_t theme_macos_dark(void) {
-    visual_config_t cfg = theme_macos_light();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->bg_color = rgba_hex(0x3c3c3cff);
-    tb->bg_color_inactive = rgba_hex(0x2d2d2dff);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0x4a4a4aff), rgba_hex(0x323232ff));
-    
-    tb->title_style.color = rgba_hex(0xffffffff);
-    tb->title_style_inactive.color = rgba_hex(0xffffff80);
-    
-    return cfg;
-}
-
-static visual_config_t theme_windows_11(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 32;
-    tb->padding_left = 12;
-    tb->padding_right = 0;
-    tb->bg_color = rgba_hex(0xf3f3f3ff);
-    tb->bg_color_inactive = rgba_hex(0xfbfbfbff);
-    tb->bg_gradient.type = GRAD_NONE;
-    
-    tb->corner_radius_tl = 8;
-    tb->corner_radius_tr = 8;
-    
-    tb->title_style = text_style_create("Segoe UI Variable, Segoe UI, sans-serif",
-                                         12, FONT_WEIGHT_NORMAL, rgba_hex(0x000000ff));
-    tb->title_align = TEXT_ALIGN_LEFT;
-    
-    tb->buttons_left = false;
-    tb->button_spacing = 0;
-    tb->button_margin = 0;
-    
-    tb->btn_close = button_style_rect(46, 32, rgba_hex(0x000000ff), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].bg_color = rgba_hex(0xe81123ff);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(0xffffffff);
-    tb->btn_close.states[BTN_STATE_PRESSED].bg_color = rgba_hex(0xf1707aff);
-    
-    tb->btn_maximize = button_style_rect(46, 32, rgba_hex(0x000000ff), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].bg_color = rgba_hex(0x0000001a);
-    
-    tb->btn_minimize = button_style_rect(46, 32, rgba_hex(0x000000ff), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].bg_color = rgba_hex(0x0000001a);
-    
-    tb->button_order[0] = 2;
-    tb->button_order[1] = 1;
-    tb->button_order[2] = 0;
-    tb->button_order[3] = -1;
-    
-    cfg.decoration.window_shadow = shadow_soft(15, 3, rgba_hex(0x00000030));
-    cfg.decoration.window_border = border_solid(1, rgba_hex(0x00000010), 8);
-    
-    return cfg;
-}
-
-static visual_config_t theme_gnome_adwaita(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 36;
-    tb->padding_left = 10;
-    tb->padding_right = 10;
-    tb->bg_color = rgba_hex(0xebebefff);
-    tb->bg_color_inactive = rgba_hex(0xf6f5f4ff);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0xf6f5f4ff), rgba_hex(0xdedddbff));
-    
-    tb->corner_radius_tl = 12;
-    tb->corner_radius_tr = 12;
-    
-    tb->title_style = text_style_create("Cantarell, sans-serif", 11, FONT_WEIGHT_BOLD, rgba_hex(0x000000e6));
-    tb->title_align = TEXT_ALIGN_CENTER;
-    
-    tb->buttons_left = false;
-    tb->button_spacing = 6;
-    tb->button_margin = 6;
-    
-    tb->btn_close = button_style_circle(22, rgba_hex(0x00000000), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x000000b3);
-    tb->btn_close.states[BTN_STATE_HOVER].bg_color = rgba_hex(0xe0404080);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(0xffffffff);
-    
-    tb->btn_maximize = button_style_circle(22, rgba_hex(0x00000000), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x000000b3);
-    tb->btn_maximize.states[BTN_STATE_HOVER].bg_color = rgba_hex(0x00000020);
-    
-    tb->btn_minimize = button_style_circle(22, rgba_hex(0x00000000), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0x000000b3);
-    tb->btn_minimize.states[BTN_STATE_HOVER].bg_color = rgba_hex(0x00000020);
-    
-    cfg.decoration.window_shadow = shadow_soft(20, 6, rgba_hex(0x00000040));
-    
-    return cfg;
-}
-
-static visual_config_t theme_gnome_adwaita_dark(void) {
-    visual_config_t cfg = theme_gnome_adwaita();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->bg_color = rgba_hex(0x303030ff);
-    tb->bg_color_inactive = rgba_hex(0x404040ff);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0x404040ff), rgba_hex(0x282828ff));
-    
-    tb->title_style.color = rgba_hex(0xffffffef);
-    tb->title_style_inactive.color = rgba_hex(0xffffff80);
-    
-    tb->btn_close.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    tb->btn_maximize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    tb->btn_minimize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    
-    return cfg;
-}
-
-static visual_config_t theme_minimal(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 24;
-    tb->padding_left = 8;
-    tb->padding_right = 8;
-    tb->bg_color = rgba_hex(0xffffffff);
-    tb->bg_color_inactive = rgba_hex(0xf5f5f5ff);
-    tb->bg_gradient.type = GRAD_NONE;
-    
-    tb->corner_radius_tl = 0;
-    tb->corner_radius_tr = 0;
-    
-    tb->border = border_solid(1, rgba_hex(0x00000020), 0);
-    
-    tb->title_style = text_style_create("Inter, SF Pro Display, sans-serif", 11, FONT_WEIGHT_NORMAL, rgba_hex(0x000000cc));
-    tb->title_align = TEXT_ALIGN_LEFT;
-    
-    tb->buttons_left = false;
-    tb->button_spacing = 2;
-    tb->button_margin = 4;
-    
-    tb->btn_close = button_style_rect(20, 20, rgba_hex(0x000000cc), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(0xff0000ff);
-    
-    tb->btn_maximize = button_style_rect(20, 20, rgba_hex(0x000000cc), ICON_MAXIMIZE);
-    tb->btn_minimize = button_style_rect(20, 20, rgba_hex(0x000000cc), ICON_MINIMIZE);
-    
-    cfg.decoration.window_shadow = shadow_soft(8, 2, rgba_hex(0x00000030));
-    cfg.decoration.window_border = border_solid(1, rgba_hex(0x00000015), 0);
-    
-    return cfg;
-}
-
-static visual_config_t theme_minimal_dark(void) {
-    visual_config_t cfg = theme_minimal();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->bg_color = rgba_hex(0x1a1a1aff);
-    tb->bg_color_inactive = rgba_hex(0x222222ff);
-    tb->border.color = rgba_hex(0xffffff15);
-    
-    tb->title_style.color = rgba_hex(0xffffffcc);
-    
-    tb->btn_close.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    tb->btn_maximize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    tb->btn_minimize.states[BTN_STATE_NORMAL].icon.color = rgba_hex(0xffffffcc);
-    
-    cfg.decoration.window_border.color = rgba_hex(0xffffff15);
-    
-    return cfg;
-}
-
-static visual_config_t theme_nord(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 30;
-    tb->bg_color = rgba_hex(nord.polar1);
-    tb->bg_color_inactive = rgba_hex(nord.polar0);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(nord.polar2), rgba_hex(nord.polar1));
-    
-    tb->corner_radius_tl = 8;
-    tb->corner_radius_tr = 8;
-    
-    tb->title_style = text_style_create("Inter, sans-serif", 12, FONT_WEIGHT_MEDIUM, rgba_hex(nord.snow0));
-    tb->title_style_inactive.color = rgba_hex(nord.polar3);
-    
-    tb->btn_close = button_style_circle(14, rgba_hex(nord.aurora0), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(nord.polar0);
-    
-    tb->btn_maximize = button_style_circle(14, rgba_hex(nord.aurora3), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(nord.polar0);
-    
-    tb->btn_minimize = button_style_circle(14, rgba_hex(nord.aurora2), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(nord.polar0);
-    
-    cfg.decoration.window_border = border_solid(1, rgba_hex(nord.polar2), 8);
-    cfg.decoration.window_shadow = shadow_soft(15, 5, rgba_hex(0x00000050));
-    
-    return cfg;
-}
-
-static visual_config_t theme_dracula(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 30;
-    tb->bg_color = rgba_hex(dracula.current);
-    tb->bg_color_inactive = rgba_hex(dracula.bg);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0x4a4d62ff), rgba_hex(dracula.current));
-    
-    tb->corner_radius_tl = 8;
-    tb->corner_radius_tr = 8;
-    
-    tb->title_style = text_style_create("Fira Code, monospace", 12, FONT_WEIGHT_NORMAL, rgba_hex(dracula.fg));
-    tb->title_style_inactive.color = rgba_hex(dracula.comment);
-    
-    tb->btn_close = button_style_circle(14, rgba_hex(dracula.red), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(dracula.bg);
-    
-    tb->btn_maximize = button_style_circle(14, rgba_hex(dracula.green), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(dracula.bg);
-    
-    tb->btn_minimize = button_style_circle(14, rgba_hex(dracula.yellow), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(dracula.bg);
-    
-    cfg.decoration.window_border = border_solid(1, rgba_hex(dracula.comment), 8);
-    cfg.decoration.window_shadow = shadow_soft(18, 6, rgba_hex(0x00000060));
-    
-    return cfg;
-}
-
-static visual_config_t theme_gruvbox_dark(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 28;
-    tb->bg_color = rgba_hex(gruvbox.bg1);
-    tb->bg_color_inactive = rgba_hex(gruvbox.bg);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(gruvbox.bg2), rgba_hex(gruvbox.bg1));
-    
-    tb->corner_radius_tl = 6;
-    tb->corner_radius_tr = 6;
-    
-    tb->title_style = text_style_create("JetBrains Mono, monospace", 11, FONT_WEIGHT_NORMAL, rgba_hex(gruvbox.fg));
-    tb->title_style_inactive.color = rgba_hex(gruvbox.bg3);
-    
-    tb->btn_close = button_style_circle(12, rgba_hex(gruvbox.red), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(gruvbox.bg);
-    
-    tb->btn_maximize = button_style_circle(12, rgba_hex(gruvbox.green), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(gruvbox.bg);
-    
-    tb->btn_minimize = button_style_circle(12, rgba_hex(gruvbox.yellow), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(gruvbox.bg);
-    
-    cfg.decoration.window_border = border_solid(2, rgba_hex(gruvbox.bg3), 6);
-    
-    return cfg;
-}
-
-static visual_config_t theme_tokyo_night(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 32;
-    tb->bg_color = rgba_hex(tokyo_night.bg_highlight);
-    tb->bg_color_inactive = rgba_hex(tokyo_night.bg);
-    tb->bg_gradient = gradient_simple(GRAD_LINEAR_V, rgba_hex(0x363b54ff), rgba_hex(tokyo_night.bg_highlight));
-    
-    tb->corner_radius_tl = 10;
-    tb->corner_radius_tr = 10;
-    
-    tb->title_style = text_style_create("JetBrains Mono, monospace", 12, FONT_WEIGHT_MEDIUM, rgba_hex(tokyo_night.fg));
-    tb->title_style_inactive.color = rgba_hex(tokyo_night.comment);
-    
-    tb->btn_close = button_style_circle(14, rgba_hex(tokyo_night.red), ICON_CLOSE);
-    tb->btn_close.states[BTN_STATE_HOVER].icon.color = rgba_hex(tokyo_night.bg);
-    
-    tb->btn_maximize = button_style_circle(14, rgba_hex(tokyo_night.green), ICON_MAXIMIZE);
-    tb->btn_maximize.states[BTN_STATE_HOVER].icon.color = rgba_hex(tokyo_night.bg);
-    
-    tb->btn_minimize = button_style_circle(14, rgba_hex(tokyo_night.yellow), ICON_MINIMIZE);
-    tb->btn_minimize.states[BTN_STATE_HOVER].icon.color = rgba_hex(tokyo_night.bg);
-    
-    cfg.effects.glow_enabled = true;
-    cfg.effects.glow_color = rgba_hex(tokyo_night.blue);
-    cfg.effects.glow_radius = 15;
-    cfg.effects.glow_intensity = 0.3f;
-    
-    cfg.decoration.window_border = border_solid(1, rgba_hex(tokyo_night.terminal_black), 10);
-    cfg.decoration.window_shadow = shadow_soft(20, 8, rgba_hex(0x000000a0));
-    
-    return cfg;
-}
-
-static visual_config_t theme_one_dark(void) {
-    visual_config_t cfg = visual_config_default();
-    titlebar_config_t *tb = &cfg.decoration.titlebar;
-    
-    tb->height = 30;
-    tb->bg_color = rgba_hex(one_dark.bg_light);
-    tb->bg_color_inactive = rgba_hex(one_dark.bg);
-    tb->bg_gradient.type = GRAD_NONE;
-    
-    tb->corner_radius_tl = 6;
-    tb->corner_radius_tr = 6;
-    
-    tb->title_style = text_style_create("Fira Code, monospace", 12, FONT_WEIGHT_NORMAL, rgba_hex(one_dark.fg));
-    tb->title_style_inactive.color = rgba_hex(one_dark.gray);
-    
-    tb->btn_close = button_style_circle(14, rgba_hex(one_dark.red), ICON_CLOSE);
-    tb->btn_maximize = button_style_circle(14, rgba_hex(one_dark.green), ICON_MAXIMIZE);
-    tb->btn_minimize = button_style_circle(14, rgba_hex(one_dark.yellow), ICON_MINIMIZE);
-    
-    cfg.decoration.window_border = border_solid(1, rgba_hex(one_dark.gray), 6);
     
     return cfg;
 }
 
 visual_config_t visual_config_preset(theme_preset_t preset) {
     switch (preset) {
-    case THEME_MACOS_LIGHT: return theme_macos_light();
-    case THEME_MACOS_DARK: return theme_macos_dark();
-    case THEME_WINDOWS_11: return theme_windows_11();
-    case THEME_GNOME_ADWAITA: return theme_gnome_adwaita();
-    case THEME_GNOME_ADWAITA_DARK: return theme_gnome_adwaita_dark();
-    case THEME_MINIMAL: return theme_minimal();
-    case THEME_MINIMAL_DARK: return theme_minimal_dark();
-    case THEME_CATPPUCCIN_MOCHA: return visual_config_default();
-    case THEME_CATPPUCCIN_LATTE: {
-        visual_config_t cfg = visual_config_default();
-        titlebar_config_t *tb = &cfg.decoration.titlebar;
-        tb->bg_color = rgba_hex(catppuccin_latte.base);
-        tb->bg_color_inactive = rgba_hex(catppuccin_latte.mantle);
-        tb->bg_gradient = gradient_simple(GRAD_LINEAR_V,
-            rgba_hex(catppuccin_latte.surface0), rgba_hex(catppuccin_latte.base));
-        tb->title_style.color = rgba_hex(catppuccin_latte.text);
-        tb->title_style_inactive.color = rgba_hex(catppuccin_latte.overlay0);
-        tb->btn_close = button_style_circle(14, rgba_hex(catppuccin_latte.red), ICON_CLOSE);
-        tb->btn_maximize = button_style_circle(14, rgba_hex(catppuccin_latte.green), ICON_MAXIMIZE);
-        tb->btn_minimize = button_style_circle(14, rgba_hex(catppuccin_latte.yellow), ICON_MINIMIZE);
-        cfg.decoration.window_border.color = rgba_hex(catppuccin_latte.surface1);
-        return cfg;
-    }
-    case THEME_NORD: return theme_nord();
-    case THEME_DRACULA: return theme_dracula();
-    case THEME_GRUVBOX_DARK: return theme_gruvbox_dark();
-    case THEME_TOKYO_NIGHT: return theme_tokyo_night();
-    case THEME_ONE_DARK: return theme_one_dark();
+    case THEME_MACOS_LIGHT: 
+        return theme_macos_light();
     case THEME_DEFAULT:
-    default: return visual_config_default();
+    default: 
+        return visual_config_default();
     }
 }

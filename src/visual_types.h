@@ -5,11 +5,150 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Forward declarations to avoid circular dependencies */
-struct titlebar_config_t;
-struct decoration_config_t;
-struct effects_config_t;
-struct workspace_indicator_config_t;
+/* Theme preset enumeration */
+typedef enum {
+    THEME_DEFAULT,
+    THEME_MACOS_LIGHT,
+    THEME_MACOS_DARK,
+    THEME_WINDOWS_11,
+    THEME_GNOME_ADWAITA,
+    THEME_GNOME_ADWAITA_DARK,
+    THEME_MINIMAL,
+    THEME_MINIMAL_DARK,
+    THEME_CATPPUCCIN_MOCHA,
+    THEME_CATPPUCCIN_LATTE,
+    THEME_NORD,
+    THEME_DRACULA,
+    THEME_GRUVBOX_DARK,
+    THEME_TOKYO_NIGHT,
+    THEME_ONE_DARK,
+} theme_preset_t;
+
+/* Forward declarations */
+typedef struct titlebar_config_t titlebar_config_t;
+
+/* Color structure */
+typedef struct {
+    float r, g, b, a;
+} rgba_t;
+
+/* Border style */
+typedef struct {
+    int width;
+    rgba_t color;
+    int radius;
+} border_t;
+
+/* Shadow style */
+typedef struct {
+    bool enabled;
+    int radius;
+    int offset_x;
+    int offset_y;
+    rgba_t color;
+} shadow_t;
+
+/* Gradient types */
+typedef enum {
+    GRAD_NONE,
+    GRAD_LINEAR_V,
+    GRAD_LINEAR_H,
+    GRAD_RADIAL,
+} gradient_type_t;
+
+typedef struct {
+    gradient_type_t type;
+    rgba_t start;
+    rgba_t end;
+} gradient_t;
+
+/* Text style */
+typedef enum {
+    FONT_WEIGHT_NORMAL = 400,
+    FONT_WEIGHT_MEDIUM = 500,
+    FONT_WEIGHT_BOLD = 700,
+} font_weight_t;
+
+typedef enum {
+    TEXT_ALIGN_LEFT,
+    TEXT_ALIGN_CENTER,
+    TEXT_ALIGN_RIGHT,
+} text_align_t;
+
+typedef struct {
+    char font_family[64];
+    int font_size;
+    font_weight_t font_weight;
+    rgba_t color;
+} text_style_t;
+
+/* Button types */
+typedef enum {
+    ICON_CLOSE,
+    ICON_MAXIMIZE,
+    ICON_MINIMIZE,
+} icon_type_t;
+
+/* Button icon structure */
+typedef struct {
+    rgba_t color;
+    float scale;
+} button_icon_t;
+
+/* Button appearance for each state */
+typedef struct {
+    rgba_t bg_color;
+    button_icon_t icon;
+} button_appearance_t;
+
+typedef struct {
+    int width;
+    int height;
+    button_appearance_t states[4]; // Normal, Hover, Pressed, Disabled
+} button_style_t;
+
+/* Complete titlebar configuration */
+struct titlebar_config_t {
+    int height;
+    int padding_left;
+    int padding_right;
+    int padding_top;
+    int padding_bottom;
+    
+    rgba_t bg_color;
+    rgba_t bg_color_inactive;
+    gradient_t bg_gradient;
+    gradient_t bg_gradient_inactive;
+    
+    border_t border;
+    shadow_t shadow;
+    shadow_t inner_shadow;
+    
+    int corner_radius_tl;
+    int corner_radius_tr;
+    int corner_radius_bl;
+    int corner_radius_br;
+    
+    text_style_t title_style;
+    text_style_t title_style_inactive;
+    text_align_t title_align;
+    int title_max_width;
+    
+    bool buttons_visible;
+    bool buttons_left;
+    int button_spacing;
+    int button_margin;
+    
+    button_style_t btn_close;
+    button_style_t btn_maximize;
+    button_style_t btn_minimize;
+    
+    int button_order[4]; // Array of button indices, -1 terminated
+    
+    float inactive_opacity;
+    bool separator_visible;
+    int transition_ms;
+};
 
 /* Subpixel rendering order */
 typedef enum {
@@ -29,7 +168,7 @@ typedef enum {
 } hint_mode_t;
 
 /* Visual effects configuration */
-typedef struct {
+struct effects_config_t {
     bool focus_ring_enabled;
     uint32_t focus_ring_color;
     int focus_ring_width;
@@ -44,10 +183,12 @@ typedef struct {
     
     bool vibrancy_enabled;
     float vibrancy_amount;
-} effects_config_t;
+};
+
+typedef struct effects_config_t effects_config_t;
 
 /* Workspace indicator configuration */
-typedef struct {
+struct workspace_indicator_config_t {
     bool enabled;
     int position_x;
     int position_y;
@@ -58,27 +199,29 @@ typedef struct {
     uint32_t inactive_color;
     uint32_t urgent_color;
     int corner_radius;
-} workspace_indicator_config_t;
+};
+
+typedef struct workspace_indicator_config_t workspace_indicator_config_t;
 
 /* Main visual configuration */
 typedef struct {
-    /* Decoration settings - using existing config.h types */
+    /* Decoration settings */
     struct {
         bool enabled;
-        struct titlebar_config_t titlebar;  /* Will be defined in config.h */
+        struct titlebar_config_t titlebar;
         
         /* Window borders and shadows */
-        int border_width;
-        uint32_t border_color;
-        uint32_t border_color_inactive;
-        uint32_t border_color_focused;
+        border_t window_border;
+        border_t window_border_inactive;
+        border_t window_border_focused;
         
-        int shadow_enabled;
-        int shadow_radius;
-        uint32_t shadow_color;
+        shadow_t window_shadow;
+        shadow_t window_shadow_inactive;
+        shadow_t window_shadow_maximized;
         
         int resize_handle_size;
-        uint32_t resize_handle_color;
+        
+rgba_t resize_handle_color;
         bool resize_handle_visible;
     } decoration;
     
