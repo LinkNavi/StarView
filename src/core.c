@@ -1,4 +1,5 @@
 #include "core.h"
+#include "background.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -142,10 +143,24 @@ static void output_request_state(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, request_state);
   struct wlr_output_event_request_state *event = data;
   wlr_output_commit_state(output->wlr_output, event->state);
+  
+  /* Update background when output size changes */
+  if (output->background && config.background.enabled) {
+      background_update(output->background, 
+                       output->wlr_output->width,
+                       output->wlr_output->height,
+                       &config.background);
+  }
 }
 
+/* Add to output_destroy() in core.c */
 static void output_destroy(struct wl_listener *listener, void *data) {
   struct output *output = wl_container_of(listener, output, destroy);
+  
+  if (output->background) {
+      wlr_scene_node_destroy(&output->background->node);
+  }
+  
   wl_list_remove(&output->frame.link);
   wl_list_remove(&output->request_state.link);
   wl_list_remove(&output->destroy.link);
@@ -189,6 +204,12 @@ void server_new_output(struct wl_listener *listener, void *data) {
   wlr_scene_output_layout_add_output(server->scene_layout, l_output,
                                      output->scene_output);
 
+if (config.background.enabled) {
+    output->background = background_create(server->layer_bg,
+                                          wlr_output->width,
+                                          wlr_output->height,
+                                          &config.background);
+}
   wl_list_insert(&server->outputs, &output->link);
 }
 

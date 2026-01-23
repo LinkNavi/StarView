@@ -40,6 +40,7 @@ src = [
   'src/visuals/stub.c',
   'src/visuals/decor.c',
   'src/visuals/themes.c',
+  'src/background.c',
   'src/anim.c',
   'src/rules.c',
   'src/util.c',

@@ -175,6 +175,7 @@ struct wl_listener gesture_hold_end;
   struct wl_listener new_input;
   struct wl_listener request_cursor;
 
+
   struct wlr_scene_tree *layer_bg;
   struct wlr_scene_tree *layer_bottom;
   struct wlr_scene_tree *layer_windows;
@@ -192,6 +193,7 @@ struct wl_listener gesture_hold_end;
   struct wl_event_source *anim_timer;
 };
 
+void decor_set_position(struct toplevel *toplevel, int x, int y);
 struct output {
   struct wl_list link;
   struct server *server;
@@ -200,6 +202,9 @@ struct output {
   struct wl_listener frame;
   struct wl_listener request_state;
   struct wl_listener destroy;
+  
+  /* Background */
+  struct wlr_scene_buffer *background;
 };
 
 struct rendered_titlebar;

@@ -5,6 +5,7 @@
 #include "ipc.h"
 #include "gesture.h"
 #include <stdio.h>
+#include "background.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include "titlebar_render.h"
@@ -153,6 +154,7 @@ printf("✓ Titlebar theme initialized from config\n");
         fprintf(stderr, "Warning: Failed to initialize IPC\n");
     }
     
+
     // Set mode from config
     server.mode = config.default_mode;
  server.preselect = PRESELECT_NONE;
@@ -179,7 +181,19 @@ printf("✓ Titlebar theme initialized from config\n");
     printf("Running on WAYLAND_DISPLAY=%s\n", socket);
     printf("Mode: %s\n", server.mode == MODE_TILING ? "TILING" : "FLOATING");
     printf("Gesture support enabled\n");
-
+   struct output *output;
+    wl_list_for_each(output, &server.outputs, link) {
+        if (output->background && config.background.enabled) {
+            int width = output->wlr_output->width;
+            int height = output->wlr_output->height;
+            
+            // Use update instead of recreate
+            background_update(output->background, width, height, &config.background);
+            
+            fprintf(stderr, "[MAIN] Updated background after config: %dx%d, path='%s'\n",
+                    width, height, config.background.image_path);
+        }
+    }
     // Launch terminal
     pid_t pid = fork();
     if (pid == 0) {

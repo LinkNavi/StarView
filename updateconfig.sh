@@ -20,12 +20,19 @@ include = [
     "decoration.toml",
     "animation.toml",
     "tiling.toml",
-    "gestures.toml",
+    # "gestures.toml",
     "keybinds/",
+    "background.toml",
     "rules.toml",
 ]
 EOF
-
+cat > "$CONFIG_DIR/background.toml" << 'EOF'
+[background]
+enabled = true
+color = "#000000"
+image = "/home/link/Pictures/Wallpaper/wallhaven.cc/8xx1wj.png"
+mode = "fill"
+EOF
 cat > "$CONFIG_DIR/gestures.toml" << 'EOF'
 # Gesture Configuration Example
 
@@ -152,6 +159,8 @@ offset_y = 4          # Lighter drop for inactive
 blur_radius = 15
 opacity = 0.3         # More transparent
 color = "#000000"
+
+
 EOF
 
 # Create animation.toml

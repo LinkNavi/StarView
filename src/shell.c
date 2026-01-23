@@ -582,23 +582,22 @@ void cursor_motion(struct wl_listener *listener, void *data) {
     struct server *server = wl_container_of(listener, server, cursor_motion);
     struct wlr_pointer_motion_event *event = data;
     
-    // Track mouse gesture
-    if (gesture_state.mouse_active) {
+      if (gesture_state.mouse_active) {
         mouse_gesture_update(server, event->delta_x, event->delta_y);
         wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
         return;
     }
     
     if (cursor_state.mode == CURSOR_MOVE) {
-        struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
-            &cursor_state.toplevel->decor.tree->node : 
-            &cursor_state.toplevel->scene_tree->node;
+        int new_x = server->cursor->x - cursor_state.grab_x;
+        int new_y = server->cursor->y - cursor_state.grab_y;
         
-        // In tiling mode, show visual feedback by moving the window
-        // It will snap back on release if no swap occurs
-        wlr_scene_node_set_position(node,
-                                    server->cursor->x - cursor_state.grab_x,
-                                    server->cursor->y - cursor_state.grab_y);
+        // Use decor_set_position to sync shadow
+        if (cursor_state.toplevel->decor.tree) {
+            decor_set_position(cursor_state.toplevel, new_x, new_y);
+        } else {
+            wlr_scene_node_set_position(&cursor_state.toplevel->scene_tree->node, new_x, new_y);
+        }
         
         wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
         return;

@@ -147,30 +147,27 @@ struct anim_config {
  * DECORATION CONFIG
  */
 struct shadow_config {
-    bool enabled;         // Enable/disable shadows
-    int offset_x;         // Horizontal offset (0-10)
-    int offset_y;         // Vertical offset (5-15)
-    int blur_radius;      // Blur amount (10-40)
-    float opacity;        // Shadow opacity (0.3-0.6)
-    uint32_t color;       // Shadow color (usually black: 0x000000FF)
+    bool enabled;
+    int offset_x;
+    int offset_y;
+    int blur_radius;
+    float opacity;
+    uint32_t color;
 };
 
 struct decor_config {
     bool enabled;
     
-    /* Basic dimensions */
     int height;
     int button_size;
     int button_spacing;
     int corner_radius;
     
-    /* Colors */
     uint32_t bg_color;
     uint32_t bg_color_inactive;
     uint32_t title_color;
     uint32_t title_color_inactive;
     
-    /* Button colors */
     uint32_t btn_close_color;
     uint32_t btn_close_hover;
     uint32_t btn_max_color;
@@ -178,15 +175,12 @@ struct decor_config {
     uint32_t btn_min_color;
     uint32_t btn_min_hover;
     
-    /* Font */
     char font[64];
     int font_size;
     
-    /* Shadow configuration */
-    struct shadow_config shadow;        // Window shadow settings
-    struct shadow_config shadow_inactive; // Shadow for unfocused windows (optional)
+    struct shadow_config shadow;
+    struct shadow_config shadow_inactive;
     
-    /* Layout */
     bool buttons_left;
 };
 
@@ -239,6 +233,25 @@ struct gesture_mouse {
 };
 
 /*
+ * BACKGROUND CONFIG
+ */
+enum background_mode {
+  BG_COLOR,
+  BG_FILL,
+  BG_FIT,
+  BG_CENTER,
+  BG_STRETCH,
+  BG_TILE,
+};
+
+struct background_config {
+  bool enabled;
+  uint32_t color;
+  char image_path[512];
+  enum background_mode mode;
+};
+
+/*
  * CONFIG STRUCT
  */
 struct config {
@@ -250,6 +263,9 @@ struct config {
   uint32_t border_color_inactive;
   bool focus_follows_mouse;
   enum window_mode default_mode;
+  
+  // [background]
+  struct background_config background;
 
   // [decoration]
   struct decor_config decor;

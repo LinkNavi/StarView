@@ -169,6 +169,75 @@ static uint32_t parse_mouse_button(const char *str) {
     return 0;
 }
 
+static enum background_mode parse_bg_mode(const char *str) {
+    if (!str) return BG_FILL;
+    if (strcasecmp(str, "color") == 0) return BG_COLOR;
+    if (strcasecmp(str, "fill") == 0) return BG_FILL;
+    if (strcasecmp(str, "fit") == 0) return BG_FIT;
+    if (strcasecmp(str, "center") == 0) return BG_CENTER;
+    if (strcasecmp(str, "stretch") == 0) return BG_STRETCH;
+    if (strcasecmp(str, "tile") == 0) return BG_TILE;
+    return BG_FILL;
+}
+
+
+
+static void parse_background(toml_table_t *bg_table) {
+    fprintf(stderr, "[CONFIG] parse_background called, table=%p\n", (void*)bg_table);
+    
+    if (!bg_table) {
+        // Only set defaults if background hasn't been configured yet
+        if (config.background.image_path[0] == '\0') {
+            fprintf(stderr, "[CONFIG] No [background] section, using defaults (first time only)\n");
+            config.background.enabled = true;
+            config.background.color = 0x1e1e2eff;
+            config.background.image_path[0] = '\0';
+            config.background.mode = BG_FILL;
+        } else {
+            fprintf(stderr, "[CONFIG] No [background] section, keeping existing config\n");
+        }
+        return;
+    }
+    
+    toml_datum_t v;
+    
+    v = toml_bool_in(bg_table, "enabled");
+    if (v.ok) {
+        config.background.enabled = v.u.b;
+        fprintf(stderr, "[CONFIG] background.enabled = %d\n", v.u.b);
+    }
+    
+    v = toml_string_in(bg_table, "color");
+    if (v.ok) {
+        config.background.color = parse_color(v.u.s);
+        fprintf(stderr, "[CONFIG] background.color = %s -> 0x%08x\n", v.u.s, config.background.color);
+        free(v.u.s);
+    }
+    
+    v = toml_string_in(bg_table, "image");
+    if (v.ok) {
+        strncpy(config.background.image_path, v.u.s, 
+                sizeof(config.background.image_path) - 1);
+        config.background.image_path[sizeof(config.background.image_path) - 1] = '\0';
+        fprintf(stderr, "[CONFIG] background.image = '%s'\n", config.background.image_path);
+        free(v.u.s);
+    } else {
+        fprintf(stderr, "[CONFIG] No background.image in config\n");
+    }
+    
+    v = toml_string_in(bg_table, "mode");
+    if (v.ok) {
+        config.background.mode = parse_bg_mode(v.u.s);
+        fprintf(stderr, "[CONFIG] background.mode = %s (%d)\n", v.u.s, config.background.mode);
+        free(v.u.s);
+    }
+    
+    fprintf(stderr, "[CONFIG] Final background: enabled=%d, path='%s', mode=%d, color=0x%08x\n",
+            config.background.enabled, config.background.image_path, 
+            config.background.mode, config.background.color);
+}
+
+
 static void parse_gesture_touchpad(toml_array_t *arr) {
     if (!arr) return;
     
@@ -841,7 +910,7 @@ static int load_config_file(const char *path) {
     
     // [decoration]
     parse_decoration(toml_table_in(root, "decoration"));
-    
+    parse_background(toml_table_in(root, "background"));
     // [animation]
     parse_animation(toml_table_in(root, "animation"));
     
@@ -875,6 +944,8 @@ static int load_config_file(const char *path) {
 int config_load(const char *path) {
     strncpy(config_path, path, sizeof(config_path) - 1);
     
+
+
     // Extract config directory
     char *last_slash = strrchr(config_path, '/');
     if (last_slash) {
@@ -916,3 +987,5 @@ int config_reload(void) {
     printf("Reloading config...\n");
     return config_load(config_path);
 }
+
+
