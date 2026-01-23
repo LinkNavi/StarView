@@ -11,7 +11,9 @@
 #include <sys/stat.h>
 #include <xkbcommon/xkbcommon.h>
 #include <wlr/types/wlr_keyboard.h>
-
+#include "gesture.h"
+#include <linux/input-event-codes.h>
+#include "gesture_config.h"
 struct config config = {
     .gaps_inner = 5,
     .gaps_outer = 10,
@@ -26,6 +28,13 @@ struct config config = {
     .master_count = 1,
     .keybind_count = 0,
     .autostart_count = 0,
+   .gesture_swipe_threshold = 0.3,
+    .gesture_pinch_threshold = 0.15,
+    .gesture_mouse_threshold = 50.0,
+    .gesture_touchpad = NULL,
+    .gesture_touchpad_count = 0,
+    .gesture_mouse = NULL,
+    .gesture_mouse_count = 0,
     .rule_count = 0,
     .decor = {
         .enabled = true,
@@ -111,8 +120,160 @@ static struct {
     {"snap_left",           ACTION_SNAP_LEFT},
     {"snap_right",          ACTION_SNAP_RIGHT},
     {"center",              ACTION_CENTER_WINDOW},
+    {"preselect_left",   ACTION_PRESELECT_LEFT},
+    {"preselect_right",  ACTION_PRESELECT_RIGHT},
+    {"preselect_up",     ACTION_PRESELECT_UP},
+    {"preselect_down",   ACTION_PRESELECT_DOWN},
+    {"swap_left",        ACTION_SWAP_LEFT},
+    {"swap_right",       ACTION_SWAP_RIGHT},
+    {"swap_up",          ACTION_SWAP_UP},
+    {"swap_down",        ACTION_SWAP_DOWN},
     {NULL, ACTION_NONE}
 };
+
+
+static enum gesture_direction parse_gesture_direction(const char *str) {
+    if (!str) return GESTURE_DIR_NONE;
+    if (strcasecmp(str, "up") == 0) return GESTURE_DIR_UP;
+    if (strcasecmp(str, "down") == 0) return GESTURE_DIR_DOWN;
+    if (strcasecmp(str, "left") == 0) return GESTURE_DIR_LEFT;
+    if (strcasecmp(str, "right") == 0) return GESTURE_DIR_RIGHT;
+    if (strcasecmp(str, "in") == 0) return GESTURE_DIR_IN;
+    if (strcasecmp(str, "out") == 0) return GESTURE_DIR_OUT;
+    return GESTURE_DIR_NONE;
+}
+
+static enum gesture_action_type parse_gesture_action_type(const char *str) {
+    if (!str) return GESTURE_ACTION_NONE;
+    if (strcasecmp(str, "workspace_next") == 0) return GESTURE_ACTION_WORKSPACE_NEXT;
+    if (strcasecmp(str, "workspace_prev") == 0) return GESTURE_ACTION_WORKSPACE_PREV;
+    if (strcasecmp(str, "workspace") == 0) return GESTURE_ACTION_WORKSPACE;
+    if (strcasecmp(str, "maximize") == 0) return GESTURE_ACTION_MAXIMIZE;
+    if (strcasecmp(str, "minimize") == 0) return GESTURE_ACTION_MINIMIZE;
+    if (strcasecmp(str, "fullscreen") == 0) return GESTURE_ACTION_FULLSCREEN;
+    if (strcasecmp(str, "close") == 0) return GESTURE_ACTION_CLOSE;
+    if (strcasecmp(str, "snap_left") == 0) return GESTURE_ACTION_SNAP_LEFT;
+    if (strcasecmp(str, "snap_right") == 0) return GESTURE_ACTION_SNAP_RIGHT;
+    if (strcasecmp(str, "toggle_floating") == 0) return GESTURE_ACTION_TOGGLE_FLOATING;
+    if (strcasecmp(str, "toggle_mode") == 0) return GESTURE_ACTION_TOGGLE_MODE;
+    if (strcasecmp(str, "spawn") == 0) return GESTURE_ACTION_SPAWN;
+    if (strcasecmp(str, "exec") == 0) return GESTURE_ACTION_EXEC;
+    return GESTURE_ACTION_NONE;
+}
+
+static uint32_t parse_mouse_button(const char *str) {
+    if (!str) return 0;
+    if (strcasecmp(str, "left") == 0) return BTN_LEFT;
+    if (strcasecmp(str, "middle") == 0) return BTN_MIDDLE;
+    if (strcasecmp(str, "right") == 0) return BTN_RIGHT;
+    return 0;
+}
+
+static void parse_gesture_touchpad(toml_array_t *arr) {
+    if (!arr) return;
+    
+    int len = toml_array_nelem(arr);
+    config.gesture_touchpad = calloc(len, sizeof(struct gesture_touchpad));
+    
+    for (int i = 0; i < len; i++) {
+        toml_table_t *g = toml_table_at(arr, i);
+        if (!g) continue;
+        
+        struct gesture_touchpad *gt = &config.gesture_touchpad[config.gesture_touchpad_count];
+        
+        toml_datum_t v;
+        
+        v = toml_int_in(g, "fingers");
+        if (v.ok) gt->fingers = v.u.i;
+        
+        v = toml_string_in(g, "direction");
+        if (v.ok) {
+            gt->direction = parse_gesture_direction(v.u.s);
+            free(v.u.s);
+        }
+        
+        v = toml_string_in(g, "action");
+        if (v.ok) {
+            const char *space = strchr(v.u.s, ' ');
+            if (space) {
+                char action_str[64];
+                size_t len = space - v.u.s;
+                if (len >= sizeof(action_str)) len = sizeof(action_str) - 1;
+                strncpy(action_str, v.u.s, len);
+                action_str[len] = '\0';
+                gt->action.type = parse_gesture_action_type(action_str);
+                strncpy(gt->action.arg, space + 1, sizeof(gt->action.arg) - 1);
+            } else {
+                gt->action.type = parse_gesture_action_type(v.u.s);
+            }
+            free(v.u.s);
+        }
+        
+        if (gt->fingers > 0 && gt->direction != GESTURE_DIR_NONE && 
+            gt->action.type != GESTURE_ACTION_NONE) {
+            config.gesture_touchpad_count++;
+        }
+    }
+}
+
+static void parse_gesture_mouse(toml_array_t *arr) {
+    if (!arr) return;
+    
+    int len = toml_array_nelem(arr);
+    config.gesture_mouse = calloc(len, sizeof(struct gesture_mouse));
+    
+    for (int i = 0; i < len; i++) {
+        toml_table_t *g = toml_table_at(arr, i);
+        if (!g) continue;
+        
+        struct gesture_mouse *gm = &config.gesture_mouse[config.gesture_mouse_count];
+        
+        toml_datum_t v;
+        
+        v = toml_string_in(g, "button");
+        if (v.ok) {
+            gm->button = parse_mouse_button(v.u.s);
+            free(v.u.s);
+        }
+        
+        v = toml_string_in(g, "modifiers");
+        if (v.ok) {
+            if (strstr(v.u.s, "Alt")) gm->modifiers |= WLR_MODIFIER_ALT;
+            if (strstr(v.u.s, "Super")) gm->modifiers |= WLR_MODIFIER_LOGO;
+            if (strstr(v.u.s, "Ctrl")) gm->modifiers |= WLR_MODIFIER_CTRL;
+            if (strstr(v.u.s, "Shift")) gm->modifiers |= WLR_MODIFIER_SHIFT;
+            free(v.u.s);
+        }
+        
+        v = toml_string_in(g, "direction");
+        if (v.ok) {
+            gm->direction = parse_gesture_direction(v.u.s);
+            free(v.u.s);
+        }
+        
+        v = toml_string_in(g, "action");
+        if (v.ok) {
+            const char *space = strchr(v.u.s, ' ');
+            if (space) {
+                char action_str[64];
+                size_t len = space - v.u.s;
+                if (len >= sizeof(action_str)) len = sizeof(action_str) - 1;
+                strncpy(action_str, v.u.s, len);
+                action_str[len] = '\0';
+                gm->action.type = parse_gesture_action_type(action_str);
+                strncpy(gm->action.arg, space + 1, sizeof(gm->action.arg) - 1);
+            } else {
+                gm->action.type = parse_gesture_action_type(v.u.s);
+            }
+            free(v.u.s);
+        }
+        
+        if (gm->button > 0 && gm->direction != GESTURE_DIR_NONE && 
+            gm->action.type != GESTURE_ACTION_NONE) {
+            config.gesture_mouse_count++;
+        }
+    }
+}
 
 static enum keybind_action parse_action(const char *str, char *arg_out) {
     arg_out[0] = '\0';
@@ -522,7 +683,26 @@ static int load_config_file(const char *path) {
             free(inc.u.s);
         }
     }
+     // [gestures]
+    toml_table_t *gestures = toml_table_in(root, "gestures");
+    if (gestures) {
+        toml_datum_t v;
+        
+        v = toml_double_in(gestures, "swipe_threshold");
+        if (v.ok) config.gesture_swipe_threshold = v.u.d;
+        
+        v = toml_double_in(gestures, "pinch_threshold");
+        if (v.ok) config.gesture_pinch_threshold = v.u.d;
+        
+        v = toml_double_in(gestures, "mouse_threshold");
+        if (v.ok) config.gesture_mouse_threshold = v.u.d;
+    }
     
+    // [[gesture_touchpad]]
+    parse_gesture_touchpad(toml_array_in(root, "gesture_touchpad"));
+    
+    // [[gesture_mouse]]
+    parse_gesture_mouse(toml_array_in(root, "gesture_mouse"));
     // [general]
     toml_table_t *general = toml_table_in(root, "general");
     if (general) {
@@ -620,6 +800,14 @@ int config_load(const char *path) {
 int config_reload(void) {
     if (config_path[0] == '\0') return -1;
     
+ free(config.gesture_touchpad);
+    config.gesture_touchpad = NULL;
+    config.gesture_touchpad_count = 0;
+    
+    free(config.gesture_mouse);
+    config.gesture_mouse = NULL;
+    config.gesture_mouse_count = 0;
+
     // Clear autostart
     for (int i = 0; i < config.autostart_count; i++) {
         free(config.autostart[i]);

@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include "ipc.h"
 #include <linux/input-event-codes.h>
+#include "gesture_config.h"
+#include "gesture.h"
 #include <wlr/types/wlr_layer_shell_v1.h>
 struct cursor_state cursor_state = {0};
 
@@ -29,17 +31,13 @@ static void tile_output(struct server *server, struct output *output) {
     
     if (count == 0) return;
     
-    // Get output dimensions
+    // Get output dimensions and exclusive zones
     int width = output->wlr_output->width;
     int height = output->wlr_output->height;
     
-    // Calculate usable area by accounting for layer shell exclusive zones
-    int top_exclusive = 0;
-    int bottom_exclusive = 0;
-    int left_exclusive = 0;
-    int right_exclusive = 0;
+    int top_exclusive = 0, bottom_exclusive = 0;
+    int left_exclusive = 0, right_exclusive = 0;
     
-    // Check all layer surfaces for exclusive zones
     struct layer_surface *layer;
     wl_list_for_each(layer, &server->layers, link) {
         if (layer->wlr_layer->output != output->wlr_output) continue;
@@ -49,114 +47,174 @@ static void tile_output(struct server *server, struct output *output) {
         
         uint32_t anchor = layer->wlr_layer->current.anchor;
         
-        // Top anchor (panels like waybar, our panel)
         if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
             (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
             (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)) {
             top_exclusive = zone;
-        }
-        // Bottom anchor (docks)
-        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)) {
+        } else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT)) {
             bottom_exclusive = zone;
-        }
-        // Left anchor (side panels)
-        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
+        } else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
             left_exclusive = zone;
-        }
-        // Right anchor (side panels)
-        else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
-                 (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
+        } else if ((anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP) &&
+                   (anchor & ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM)) {
             right_exclusive = zone;
         }
     }
     
-    // Adjust usable area based on exclusive zones
     int usable_x = left_exclusive;
     int usable_y = top_exclusive;
     int usable_width = width - left_exclusive - right_exclusive;
     int usable_height = height - top_exclusive - bottom_exclusive;
     
-    // Now use usable dimensions instead of full screen
     int gaps = config.gaps_inner;
     int outer = config.gaps_outer;
-    int master_count = config.master_count;
-    float master_ratio = config.master_ratio;
     int decor_h = config.decor.enabled ? config.decor.height : 0;
     
-    int master_width;
-    if (count <= master_count) {
-        master_width = usable_width - outer * 2;
-    } else {
-        master_width = (int)((usable_width - outer * 2 - gaps) * master_ratio);
-    }
+    // Collect windows
+    struct {
+        struct toplevel *toplevel;
+        int x, y, w, h;
+    } windows[32];
     
-    int master_i = 0;
-    int stack_i = 0;
-    int stack_count = count > master_count ? count - master_count : 0;
-
+    int window_idx = 0;
     wl_list_for_each(toplevel, &server->toplevels, link) {
         if (toplevel->floating || toplevel->fullscreen ||
             toplevel->workspace != server->current_workspace) {
             continue;
         }
-        
+        windows[window_idx++].toplevel = toplevel;
+        if (window_idx >= 32) break;
+    }
+    
+    // Dwindle split structure
+    typedef struct {
         int x, y, w, h;
+        int start_idx, end_idx;
+        bool horizontal;
+    } Split;
+    
+    Split stack[32];
+    int stack_size = 0;
+    
+    stack[stack_size++] = (Split){
+        .x = usable_x + outer,
+        .y = usable_y + outer,
+        .w = usable_width - outer * 2,
+        .h = usable_height - outer * 2,
+        .start_idx = 0,
+        .end_idx = count - 1,
+        .horizontal = true
+    };
+    
+    while (stack_size > 0) {
+        Split s = stack[--stack_size];
+        int num = s.end_idx - s.start_idx + 1;
         
-        if (master_i < master_count) {
-            // Master area
-            int this_master_count = count < master_count ? count : master_count;
-            x = usable_x + outer;
-            w = master_width;
-            
-            // Calculate total available height
-            int total_h = usable_height - outer * 2 - gaps * (this_master_count - 1);
-            h = total_h / this_master_count;
-            y = usable_y + outer + master_i * (h + gaps);
-            
-            master_i++;
+        if (num == 1) {
+            windows[s.start_idx].x = s.x;
+            windows[s.start_idx].y = s.y;
+            windows[s.start_idx].w = s.w;
+            windows[s.start_idx].h = s.h - decor_h;
+        } else if (num == 2) {
+            if (s.horizontal) {
+                int w1 = (s.w - gaps) / 2;
+                int w2 = s.w - gaps - w1;
+                
+                windows[s.start_idx].x = s.x;
+                windows[s.start_idx].y = s.y;
+                windows[s.start_idx].w = w1;
+                windows[s.start_idx].h = s.h - decor_h;
+                
+                windows[s.start_idx + 1].x = s.x + w1 + gaps;
+                windows[s.start_idx + 1].y = s.y;
+                windows[s.start_idx + 1].w = w2;
+                windows[s.start_idx + 1].h = s.h - decor_h;
+            } else {
+                int h1 = (s.h - gaps) / 2;
+                int h2 = s.h - gaps - h1;
+                
+                windows[s.start_idx].x = s.x;
+                windows[s.start_idx].y = s.y;
+                windows[s.start_idx].w = s.w;
+                windows[s.start_idx].h = h1 - decor_h;
+                
+                windows[s.start_idx + 1].x = s.x;
+                windows[s.start_idx + 1].y = s.y + h1 + gaps;
+                windows[s.start_idx + 1].w = s.w;
+                windows[s.start_idx + 1].h = h2 - decor_h;
+            }
         } else {
-            // Stack area
-            x = usable_x + outer + master_width + gaps;
-            w = usable_width - outer * 2 - master_width - gaps;
-            
-            // Calculate total available height
-            int total_h = usable_height - outer * 2 - gaps * (stack_count - 1);
-            h = total_h / stack_count;
-            y = usable_y + outer + stack_i * (h + gaps);
-            
-            stack_i++;
+            if (s.horizontal) {
+                int w1 = s.w / 2;
+                int w2 = s.w - w1 - gaps;
+                
+                windows[s.start_idx].x = s.x;
+                windows[s.start_idx].y = s.y;
+                windows[s.start_idx].w = w1;
+                windows[s.start_idx].h = s.h - decor_h;
+                
+                stack[stack_size++] = (Split){
+                    .x = s.x + w1 + gaps,
+                    .y = s.y,
+                    .w = w2,
+                    .h = s.h,
+                    .start_idx = s.start_idx + 1,
+                    .end_idx = s.end_idx,
+                    .horizontal = false
+                };
+            } else {
+                int h1 = s.h / 2;
+                int h2 = s.h - h1 - gaps;
+                
+                windows[s.start_idx].x = s.x;
+                windows[s.start_idx].y = s.y;
+                windows[s.start_idx].w = s.w;
+                windows[s.start_idx].h = h1 - decor_h;
+                
+                stack[stack_size++] = (Split){
+                    .x = s.x,
+                    .y = s.y + h1 + gaps,
+                    .w = s.w,
+                    .h = h2,
+                    .start_idx = s.start_idx + 1,
+                    .end_idx = s.end_idx,
+                    .horizontal = true
+                };
+            }
         }
+    }
+    
+    // Apply positions
+    for (int i = 0; i < window_idx; i++) {
+        struct toplevel *t = windows[i].toplevel;
+        int x = windows[i].x;
+        int y = windows[i].y;
+        int w = windows[i].w;
+        int h = windows[i].h;
         
-        // Subtract decoration height from content
-        int content_h = h - decor_h;
-        
-        // Ensure minimum size
         if (w < 100) w = 100;
-        if (content_h < 50) content_h = 50;
+        if (h < 50) h = 50;
         
-        // Update decoration width
-        if (config.decor.enabled && toplevel->decor.tree) {
-            decor_set_size(toplevel, w);
+        if (config.decor.enabled && t->decor.tree) {
+            decor_set_size(t, w);
         }
         
-        // Position window
         if (config.anim.enabled && config.anim.window_move != ANIM_NONE) {
-            anim_start(toplevel, config.anim.window_move, x, y, w, content_h, NULL, NULL);
+            anim_start(t, config.anim.window_move, x, y, w, h, NULL, NULL);
             anim_schedule_update(server);
         } else {
-            struct wlr_scene_node *node = toplevel->decor.tree ?
-                &toplevel->decor.tree->node : &toplevel->scene_tree->node;
+            struct wlr_scene_node *node = t->decor.tree ?
+                &t->decor.tree->node : &t->scene_tree->node;
             wlr_scene_node_set_position(node, x, y);
-            wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, w, content_h);
+            wlr_xdg_toplevel_set_size(t->xdg_toplevel, w, h);
         }
     }
 }
-
 
 void arrange_windows(struct server *server) {
     if (server->mode == MODE_FLOATING) {
@@ -279,11 +337,13 @@ static struct toplevel *get_toplevel_in_direction(struct server *server,
  * TOPLEVEL HANDLERS
  * ============================================================================
  */
+
 static void toplevel_map(struct wl_listener *listener, void *data) {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, map);
     struct server *server = toplevel->server;
     
-    wl_list_insert(&server->toplevels, &toplevel->link);
+    struct toplevel *focused = get_focused_toplevel(server);
+    
     toplevel->workspace = server->current_workspace;
     toplevel->opacity = 1.0f;
     
@@ -297,11 +357,44 @@ static void toplevel_map(struct wl_listener *listener, void *data) {
     
     apply_window_rules(toplevel);
     
-    // Always arrange in tiling mode
+    // Handle preselect for window insertion
+    if (focused && !toplevel->floating && server->mode == MODE_TILING && server->preselect != PRESELECT_NONE) {
+        struct toplevel *target = NULL;
+        
+        switch (server->preselect) {
+            case PRESELECT_LEFT:
+                target = get_toplevel_in_direction(server, focused, -1, 0);
+                break;
+            case PRESELECT_RIGHT:
+                target = get_toplevel_in_direction(server, focused, 1, 0);
+                break;
+            case PRESELECT_UP:
+                target = get_toplevel_in_direction(server, focused, 0, -1);
+                break;
+            case PRESELECT_DOWN:
+                target = get_toplevel_in_direction(server, focused, 0, 1);
+                break;
+            default:
+                break;
+        }
+        
+        if (target) {
+            wl_list_insert(&target->link, &toplevel->link);
+            fprintf(stderr, "[TILING] Inserted window via preselect\n");
+        } else {
+            wl_list_insert(&focused->link, &toplevel->link);
+        }
+        
+        server->preselect = PRESELECT_NONE;
+    } else if (focused && !toplevel->floating && server->mode == MODE_TILING) {
+        wl_list_insert(&focused->link, &toplevel->link);
+    } else {
+        wl_list_insert(&server->toplevels, &toplevel->link);
+    }
+    
     if (!toplevel->floating) {
         arrange_windows(server);
     } else {
-        // Center floating
         struct output *output;
         wl_list_for_each(output, &server->outputs, link) {
             int x = (output->wlr_output->width - 800) / 2;
@@ -317,9 +410,7 @@ static void toplevel_map(struct wl_listener *listener, void *data) {
     }
     
     focus_toplevel(toplevel);
-}
-
-static void toplevel_unmap(struct wl_listener *listener, void *data) {
+}static void toplevel_unmap(struct wl_listener *listener, void *data) {
     struct toplevel *toplevel = wl_container_of(listener, toplevel, unmap);
     struct server *server = toplevel->server;
     
@@ -485,15 +576,206 @@ void server_new_xdg_toplevel(struct wl_listener *listener, void *data) {
  * ============================================================================
  */
 
+
+
+void cursor_motion(struct wl_listener *listener, void *data) {
+    struct server *server = wl_container_of(listener, server, cursor_motion);
+    struct wlr_pointer_motion_event *event = data;
+    
+    // Track mouse gesture
+    if (gesture_state.mouse_active) {
+        mouse_gesture_update(server, event->delta_x, event->delta_y);
+        wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+        return;
+    }
+    
+    if (cursor_state.mode == CURSOR_MOVE) {
+        struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
+            &cursor_state.toplevel->decor.tree->node : 
+            &cursor_state.toplevel->scene_tree->node;
+        
+        // In tiling mode, show visual feedback by moving the window
+        // It will snap back on release if no swap occurs
+        wlr_scene_node_set_position(node,
+                                    server->cursor->x - cursor_state.grab_x,
+                                    server->cursor->y - cursor_state.grab_y);
+        
+        wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+        return;
+    }
+
+    if (cursor_state.mode == CURSOR_RESIZE) {
+        double dx = server->cursor->x - cursor_state.grab_x;
+        double dy = server->cursor->y - cursor_state.grab_y;
+        
+        int new_x = cursor_state.grab_box.x;
+        int new_y = cursor_state.grab_box.y;
+        int new_width = cursor_state.grab_box.width;
+        int new_height = cursor_state.grab_box.height;
+        
+        enum decor_hit edge = cursor_state.resize_edges;
+        
+        if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
+            edge == HIT_RESIZE_BOTTOM_LEFT) {
+            new_x = cursor_state.grab_box.x + dx;
+            new_width = cursor_state.grab_box.width - dx;
+        } else if (edge == HIT_RESIZE_RIGHT || edge == HIT_RESIZE_TOP_RIGHT || 
+                   edge == HIT_RESIZE_BOTTOM_RIGHT) {
+            new_width = cursor_state.grab_box.width + dx;
+        }
+        
+        if (edge == HIT_RESIZE_TOP || edge == HIT_RESIZE_TOP_LEFT || 
+            edge == HIT_RESIZE_TOP_RIGHT) {
+            new_y = cursor_state.grab_box.y + dy;
+            new_height = cursor_state.grab_box.height - dy;
+        } else if (edge == HIT_RESIZE_BOTTOM || edge == HIT_RESIZE_BOTTOM_LEFT || 
+                   edge == HIT_RESIZE_BOTTOM_RIGHT) {
+            new_height = cursor_state.grab_box.height + dy;
+        }
+        
+        if (new_width < 100) {
+            new_width = 100;
+            if (edge == HIT_RESIZE_LEFT || edge == HIT_RESIZE_TOP_LEFT || 
+                edge == HIT_RESIZE_BOTTOM_LEFT) {
+                new_x = cursor_state.grab_box.x + cursor_state.grab_box.width - 100;
+            }
+        }
+        if (new_height < 100) {
+            new_height = 100;
+            if (edge == HIT_RESIZE_TOP || edge == HIT_RESIZE_TOP_LEFT || 
+                edge == HIT_RESIZE_TOP_RIGHT) {
+                new_y = cursor_state.grab_box.y + cursor_state.grab_box.height - 100;
+            }
+        }
+        
+        struct wlr_scene_node *node = cursor_state.toplevel->decor.tree ?
+            &cursor_state.toplevel->decor.tree->node : 
+            &cursor_state.toplevel->scene_tree->node;
+        wlr_scene_node_set_position(node, new_x, new_y);
+        wlr_xdg_toplevel_set_size(cursor_state.toplevel->xdg_toplevel, 
+                                   new_width, new_height);
+        
+        wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+        return;
+    }
+    
+    wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x,
+                    event->delta_y);
+    
+    // Update cursor appearance and handle hover events
+    double sx, sy;
+    struct wlr_surface *surface = NULL;
+    struct toplevel *toplevel = toplevel_at(server, server->cursor->x,
+        server->cursor->y, &surface, &sx, &sy);
+    
+    if (config.decor.enabled && toplevel) {
+        enum decor_hit hit = decor_hit_test(toplevel, server->cursor->x, server->cursor->y);
+        if (hit == HIT_TITLEBAR || (hit >= HIT_RESIZE_TOP && hit <= HIT_RESIZE_BOTTOM_RIGHT)) {
+            wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr,
+                hit == HIT_TITLEBAR ? "default" : "se-resize");
+        } else if (toplevel) {
+            wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
+        }
+    }
+    
+    if (surface) {
+        wlr_seat_pointer_notify_enter(server->seat, surface, sx, sy);
+        wlr_seat_pointer_notify_motion(server->seat, event->time_msec, sx, sy);
+    } else {
+        wlr_seat_pointer_clear_focus(server->seat);
+    }
+}
+
+
 void cursor_button(struct wl_listener *listener, void *data) {
     struct server *server = wl_container_of(listener, server, cursor_button);
     struct wlr_pointer_button_event *event = data;
 
     // Handle button release
     if (event->state == WL_POINTER_BUTTON_STATE_RELEASED) {
-        if (cursor_state.mode == CURSOR_RESIZE) {
+        fprintf(stderr, "[CURSOR] Button released, mode: %d\n", cursor_state.mode);
+        
+        // Check if mouse gesture was active
+        if (gesture_state.mouse_active) {
+            if (mouse_gesture_end(server)) {
+                return;
+            }
+        }
+        
+          if (cursor_state.mode == CURSOR_MOVE && cursor_state.toplevel) {
+            fprintf(stderr, "[CURSOR] Was moving window, tiling: %d, floating: %d\n", 
+                    server->mode == MODE_TILING, cursor_state.toplevel->floating);
+            
+            if (server->mode == MODE_TILING && !cursor_state.toplevel->floating) {
+                // Find closest window to cursor position (not using toplevel_at)
+                struct toplevel *source = cursor_state.toplevel;
+                struct toplevel *target = NULL;
+                double min_dist = INFINITY;
+                
+                // Get source center position
+                struct wlr_scene_node *source_node = source->decor.tree ?
+                    &source->decor.tree->node : &source->scene_tree->node;
+                double source_cx = source_node->x;
+                double source_cy = source_node->y;
+                
+                fprintf(stderr, "[CURSOR] Source at: %.0f,%.0f, cursor at: %.0f,%.0f\n",
+                        source_cx, source_cy, server->cursor->x, server->cursor->y);
+                
+                // Find closest window on same workspace
+                struct toplevel *t;
+                wl_list_for_each(t, &server->toplevels, link) {
+                    if (t == source) continue;
+                    if (t->floating || t->fullscreen) continue;
+                    if (t->workspace != server->current_workspace) continue;
+                    
+                    struct wlr_scene_node *node = t->decor.tree ?
+                        &t->decor.tree->node : &t->scene_tree->node;
+                    
+                    // Calculate distance from cursor to this window's center
+                    double cx = node->x;
+                    double cy = node->y;
+                    double dx = server->cursor->x - cx;
+                    double dy = server->cursor->y - cy;
+                    double dist = dx*dx + dy*dy;
+                    
+                    fprintf(stderr, "[DEBUG] Window %p at %.0f,%.0f, dist: %.0f\n",
+                            (void*)t, cx, cy, dist);
+                    
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        target = t;
+                    }
+                }
+                
+                // Only swap if cursor moved significantly (at least 100px away)
+                if (target && min_dist < 5000000) { // ~700px radius
+                    fprintf(stderr, "[TILING] Swapping windows! Source: %p, Target: %p (dist: %.0f)\n", 
+                            (void*)source, (void*)target, sqrt(min_dist));
+                    
+                    // Remove source from list
+                    wl_list_remove(&source->link);
+                    // Insert source right after target
+                    wl_list_insert(&target->link, &source->link);
+                    
+                    // Rearrange layout
+                    arrange_windows(server);
+                    focus_toplevel(source);
+                    
+                    fprintf(stderr, "[TILING] Swap complete\n");
+                } else {
+                    if (target) {
+                        fprintf(stderr, "[TILING] Target too far (%.0f), not swapping\n", sqrt(min_dist));
+                    } else {
+                        fprintf(stderr, "[TILING] No valid target found\n");
+                    }
+                    // No valid target or too far, just rearrange to snap back
+                    arrange_windows(server);
+                }
+            }
+        }        if (cursor_state.mode == CURSOR_RESIZE) {
             wlr_xdg_toplevel_set_resizing(cursor_state.toplevel->xdg_toplevel, false);
         }
+        
         cursor_state.mode = CURSOR_NORMAL;
         cursor_state.toplevel = NULL;
         wlr_seat_pointer_notify_button(server->seat, event->time_msec, 
@@ -501,7 +783,7 @@ void cursor_button(struct wl_listener *listener, void *data) {
         return;
     }
 
-    // Find toplevel under cursor
+    // Button press - find toplevel under cursor
     double sx, sy;
     struct wlr_surface *surface = NULL;
     struct toplevel *toplevel = toplevel_at(server, server->cursor->x,
@@ -516,23 +798,42 @@ void cursor_button(struct wl_listener *listener, void *data) {
     // Get keyboard modifiers
     struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat);
     uint32_t modifiers = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
-    bool alt_pressed = (modifiers & WLR_MODIFIER_ALT) != 0;
 
-    // PRIORITY 1: Alt+Left Click = Move (checked FIRST)
-    if (alt_pressed && event->button == BTN_LEFT) {
+    // Check if this is a mouse gesture trigger
+    if (mouse_gesture_check(event->button, modifiers)) {
+        mouse_gesture_begin(server, event->button, modifiers);
         focus_toplevel(toplevel);
-        if (server->mode == MODE_FLOATING || toplevel->floating) {
-            cursor_state.mode = CURSOR_MOVE;
-            cursor_state.toplevel = toplevel;
-            struct wlr_scene_node *node = toplevel->decor.tree ?
-                &toplevel->decor.tree->node : &toplevel->scene_tree->node;
-            cursor_state.grab_x = server->cursor->x - node->x;
-            cursor_state.grab_y = server->cursor->y - node->y;
-        }
         return;
     }
 
-    // PRIORITY 2: Alt+Right Click = Resize (checked SECOND)
+    // PRIORITY 1: Alt+Left Click = Move/Swap
+    bool alt_pressed = (modifiers & WLR_MODIFIER_ALT) != 0;
+    if (alt_pressed && event->button == BTN_LEFT) {
+        focus_toplevel(toplevel);
+        
+        fprintf(stderr, "[CURSOR] Alt+Left click on window, mode: %d, floating: %d\n",
+                server->mode, toplevel->floating);
+        
+        // Always allow moving (in tiling mode this becomes swapping)
+        cursor_state.mode = CURSOR_MOVE;
+        cursor_state.toplevel = toplevel;
+        struct wlr_scene_node *node = toplevel->decor.tree ?
+            &toplevel->decor.tree->node : &toplevel->scene_tree->node;
+        cursor_state.grab_x = server->cursor->x - node->x;
+        cursor_state.grab_y = server->cursor->y - node->y;
+        
+        // Store original position for tiling mode
+        if (server->mode == MODE_TILING && !toplevel->floating) {
+            cursor_state.grab_box.x = node->x;
+            cursor_state.grab_box.y = node->y;
+            fprintf(stderr, "[TILING] Started drag for swapping, orig pos: %d,%d\n",
+                    cursor_state.grab_box.x, cursor_state.grab_box.y);
+        }
+        
+        return;
+    }
+
+    // PRIORITY 2: Alt+Right Click = Resize
     if (alt_pressed && event->button == BTN_RIGHT) {
         focus_toplevel(toplevel);
         if (server->mode == MODE_FLOATING || toplevel->floating) {
@@ -558,18 +859,16 @@ void cursor_button(struct wl_listener *listener, void *data) {
         return;
     }
 
-    // PRIORITY 3: Decoration clicks (only if Alt NOT pressed)
+    // PRIORITY 3: Decoration clicks
     if (config.decor.enabled && event->button == BTN_LEFT && !alt_pressed) {
         enum decor_hit hit = decor_hit_test(toplevel, server->cursor->x, server->cursor->y);
         
-        // Focus the window FIRST before performing any action
         focus_toplevel(toplevel);
         
         if (hit == HIT_CLOSE) {
             wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
             return;
         } else if (hit == HIT_MAXIMIZE) {
-            // Perform maximize action directly on THIS toplevel
             toplevel->maximized = !toplevel->maximized;
             
             if (toplevel->maximized) {
@@ -586,11 +885,9 @@ void cursor_button(struct wl_listener *listener, void *data) {
                 wl_list_for_each(output, &server->outputs, link) {
                     int w = output->wlr_output->width - config.gaps_outer * 2;
                     int h = output->wlr_output->height - config.gaps_outer * 2;
-                    
                     if (config.decor.enabled && toplevel->decor.tree) {
                         h -= config.decor.height;
                     }
-                    
                     wlr_scene_node_set_position(node, config.gaps_outer, config.gaps_outer);
                     wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, w, h);
                     break;
@@ -604,7 +901,6 @@ void cursor_button(struct wl_listener *listener, void *data) {
             }
             return;
         } else if (hit == HIT_MINIMIZE) {
-            // Perform minimize action directly on THIS toplevel
             toplevel->minimized = !toplevel->minimized;
             struct wlr_scene_node *node = toplevel->decor.tree ?
                 &toplevel->decor.tree->node : &toplevel->scene_tree->node;
@@ -621,13 +917,18 @@ void cursor_button(struct wl_listener *listener, void *data) {
             }
             return;
         } else if (hit == HIT_TITLEBAR) {
-            if (server->mode == MODE_FLOATING || toplevel->floating) {
-                cursor_state.mode = CURSOR_MOVE;
-                cursor_state.toplevel = toplevel;
-                struct wlr_scene_node *node = toplevel->decor.tree ?
-                    &toplevel->decor.tree->node : &toplevel->scene_tree->node;
-                cursor_state.grab_x = server->cursor->x - node->x;
-                cursor_state.grab_y = server->cursor->y - node->y;
+            // Titlebar drag works in both modes
+            cursor_state.mode = CURSOR_MOVE;
+            cursor_state.toplevel = toplevel;
+            struct wlr_scene_node *node = toplevel->decor.tree ?
+                &toplevel->decor.tree->node : &toplevel->scene_tree->node;
+            cursor_state.grab_x = server->cursor->x - node->x;
+            cursor_state.grab_y = server->cursor->y - node->y;
+            
+            if (server->mode == MODE_TILING && !toplevel->floating) {
+                cursor_state.grab_box.x = node->x;
+                cursor_state.grab_box.y = node->y;
+                fprintf(stderr, "[TILING] Started titlebar drag for swapping\n");
             }
             return;
         } else if (hit >= HIT_RESIZE_TOP && hit <= HIT_RESIZE_BOTTOM_RIGHT) {
@@ -655,14 +956,13 @@ void cursor_button(struct wl_listener *listener, void *data) {
         }
     }
 
-    // PRIORITY 4: Focus on any click (if nothing else handled it)
+    // PRIORITY 4: Focus on any click
     focus_toplevel(toplevel);
     
     // Forward the button event to the client
     wlr_seat_pointer_notify_button(server->seat, event->time_msec,
         event->button, event->state);
 }
-
 /*
  * ============================================================================
  * KEYBIND HANDLER
@@ -674,6 +974,47 @@ bool handle_keybind(struct server *server, enum keybind_action action, const cha
     
     switch (action) {
     
+    case ACTION_PRESELECT_LEFT:
+        server->preselect = PRESELECT_LEFT;
+        fprintf(stderr, "[PRESELECT] Next window will open to the LEFT\n");
+        return true;
+    
+    case ACTION_PRESELECT_RIGHT:
+        server->preselect = PRESELECT_RIGHT;
+        fprintf(stderr, "[PRESELECT] Next window will open to the RIGHT\n");
+        return true;
+    
+    case ACTION_PRESELECT_UP:
+        server->preselect = PRESELECT_UP;
+        fprintf(stderr, "[PRESELECT] Next window will open ABOVE\n");
+        return true;
+    
+    case ACTION_PRESELECT_DOWN:
+        server->preselect = PRESELECT_DOWN;
+        fprintf(stderr, "[PRESELECT] Next window will open BELOW\n");
+        return true;
+    
+    case ACTION_SWAP_LEFT:
+    case ACTION_SWAP_RIGHT:
+    case ACTION_SWAP_UP:
+    case ACTION_SWAP_DOWN:
+        if (focused && server->mode == MODE_TILING && !focused->floating) {
+            int dx = 0, dy = 0;
+            if (action == ACTION_SWAP_LEFT) dx = -1;
+            if (action == ACTION_SWAP_RIGHT) dx = 1;
+            if (action == ACTION_SWAP_UP) dy = -1;
+            if (action == ACTION_SWAP_DOWN) dy = 1;
+            
+            struct toplevel *target = get_toplevel_in_direction(server, focused, dx, dy);
+            if (target && target != focused) {
+                // Swap positions in list
+                wl_list_remove(&focused->link);
+                wl_list_insert(&target->link, &focused->link);
+                arrange_windows(server);
+                fprintf(stderr, "[SWAP] Swapped windows\n");
+            }
+        }
+        return true;
     case ACTION_SPAWN:
         if (fork() == 0) {
             execl("/bin/sh", "sh", "-c", arg, NULL);

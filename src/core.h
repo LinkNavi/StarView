@@ -129,6 +129,14 @@ struct cursor_state {
 
 extern struct cursor_state cursor_state;
 
+enum preselect_dir {
+    PRESELECT_NONE,
+    PRESELECT_LEFT,
+    PRESELECT_RIGHT,
+    PRESELECT_UP,
+    PRESELECT_DOWN,
+};
+
 struct server {
   struct wl_display *display;
   struct wlr_backend *backend;
@@ -141,7 +149,15 @@ struct server {
   struct wlr_seat *seat;
   struct wlr_cursor *cursor;
   struct wlr_xcursor_manager *cursor_mgr;
-
+enum preselect_dir preselect;
+struct wl_listener gesture_swipe_begin;
+struct wl_listener gesture_swipe_update;
+struct wl_listener gesture_swipe_end;
+struct wl_listener gesture_pinch_begin;
+struct wl_listener gesture_pinch_update;
+struct wl_listener gesture_pinch_end;
+struct wl_listener gesture_hold_begin;
+struct wl_listener gesture_hold_end;
   struct wlr_layer_shell_v1 *layer_shell;
   struct wl_listener new_layer_surface;
 

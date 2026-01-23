@@ -20,9 +20,81 @@ include = [
     "decoration.toml",
     "animation.toml",
     "tiling.toml",
+    "gestures.toml",
     "keybinds/",
     "rules.toml",
 ]
+EOF
+
+cat > "$CONFIG_DIR/gestures.toml" << 'EOF'
+# Gesture Configuration Example
+
+[gestures]
+# Sensitivity thresholds
+swipe_threshold = 0.3      # How far to swipe (0.0-1.0)
+pinch_threshold = 0.15     # How much to pinch (0.0-1.0)
+mouse_threshold = 50.0     # Pixels to drag for mouse gestures
+
+# Touchpad Gestures - 3 finger swipes for workspace switching
+[[gesture_touchpad]]
+fingers = 3
+direction = "left"
+action = "workspace_next"
+
+[[gesture_touchpad]]
+fingers = 3
+direction = "right"
+action = "workspace_prev"
+
+# Mouse Gestures - Alt+Middle Click drag
+[[gesture_mouse]]
+button = "middle"
+modifiers = "Alt"
+direction = "up"
+action = "maximize"
+
+[[gesture_mouse]]
+button = "middle"
+modifiers = "Alt"
+direction = "down"
+action = "exec rofi -show drun"
+
+[[gesture_mouse]]
+button = "middle"
+modifiers = "Alt"
+direction = "left"
+action = "snap_left"
+
+[[gesture_mouse]]
+button = "middle"
+modifiers = "Alt"
+direction = "right"
+action = "snap_right"
+
+# Super+Right Click for quick apps
+[[gesture_mouse]]
+button = "right"
+modifiers = "Super"
+direction = "up"
+action = "exec firefox"
+
+[[gesture_mouse]]
+button = "right"
+modifiers = "Super"
+direction = "down"
+action = "exec kitty"
+
+[[gesture_mouse]]
+button = "right"
+modifiers = "Alt"
+direction = "left"
+action = "exec kitty"
+
+[[gesture_mouse]]
+button = "right"
+modifiers = "Super"
+direction = "right"
+action = "exec nautilus"
 EOF
 
 # Create general.toml

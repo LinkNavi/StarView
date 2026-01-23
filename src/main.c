@@ -3,6 +3,7 @@
 #include "core.h"
 #include "config.h"
 #include "ipc.h"
+#include "gesture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -94,6 +95,26 @@ int main(void) {
     server.cursor_frame.notify = cursor_frame;
     wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
 
+    // Gesture support
+    server.gesture_swipe_begin.notify = gesture_swipe_begin;
+    wl_signal_add(&server.cursor->events.swipe_begin, &server.gesture_swipe_begin);
+    server.gesture_swipe_update.notify = gesture_swipe_update;
+    wl_signal_add(&server.cursor->events.swipe_update, &server.gesture_swipe_update);
+    server.gesture_swipe_end.notify = gesture_swipe_end;
+    wl_signal_add(&server.cursor->events.swipe_end, &server.gesture_swipe_end);
+    
+    server.gesture_pinch_begin.notify = gesture_pinch_begin;
+    wl_signal_add(&server.cursor->events.pinch_begin, &server.gesture_pinch_begin);
+    server.gesture_pinch_update.notify = gesture_pinch_update;
+    wl_signal_add(&server.cursor->events.pinch_update, &server.gesture_pinch_update);
+    server.gesture_pinch_end.notify = gesture_pinch_end;
+    wl_signal_add(&server.cursor->events.pinch_end, &server.gesture_pinch_end);
+    
+    server.gesture_hold_begin.notify = gesture_hold_begin;
+    wl_signal_add(&server.cursor->events.hold_begin, &server.gesture_hold_begin);
+    server.gesture_hold_end.notify = gesture_hold_end;
+    wl_signal_add(&server.cursor->events.hold_end, &server.gesture_hold_end);
+
     server.new_input.notify = new_input;
     wl_signal_add(&server.backend->events.new_input, &server.new_input);
 
@@ -106,6 +127,17 @@ int main(void) {
     snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", getenv("HOME"));
     config_load(config_file);
     
+ fprintf(stderr, "[GESTURE] Loaded config:\n");
+    fprintf(stderr, "[GESTURE]   Touchpad gestures: %d\n", config.gesture_touchpad_count);
+    fprintf(stderr, "[GESTURE]   Mouse gestures: %d\n", config.gesture_mouse_count);
+    fprintf(stderr, "[GESTURE]   Mouse threshold: %.1f\n", config.gesture_mouse_threshold);
+    for (int i = 0; i < config.gesture_mouse_count; i++) {
+        fprintf(stderr, "[GESTURE]     %d: button=%u, mods=0x%x, dir=%d, action=%d\n",
+                i, config.gesture_mouse[i].button, 
+                config.gesture_mouse[i].modifiers,
+                config.gesture_mouse[i].direction,
+                config.gesture_mouse[i].action.type);
+    }
     // Initialize IPC
     if (ipc_init(&server) < 0) {
         fprintf(stderr, "Warning: Failed to initialize IPC\n");
@@ -113,7 +145,7 @@ int main(void) {
     
     // Set mode from config
     server.mode = config.default_mode;
-
+ server.preselect = PRESELECT_NONE;
     // Run autostart
     for (int i = 0; i < config.autostart_count; i++) {
         if (fork() == 0) {
@@ -136,6 +168,7 @@ int main(void) {
     setenv("WAYLAND_DISPLAY", socket, 1);
     printf("Running on WAYLAND_DISPLAY=%s\n", socket);
     printf("Mode: %s\n", server.mode == MODE_TILING ? "TILING" : "FLOATING");
+    printf("Gesture support enabled\n");
 
     // Launch terminal
     pid_t pid = fork();
