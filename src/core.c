@@ -42,6 +42,7 @@ static void color_to_float(uint32_t color, float out[4]) {
 
 static void xwayland_decor_create(struct xwayland_surface *xsurface) {
     if (!config.decor.enabled || xsurface->override_redirect) return;
+    if (!xsurface->scene_tree) return;
     
     struct titlebar_theme *theme = titlebar_get_global_theme();
     if (!theme) return;
@@ -51,6 +52,7 @@ static void xwayland_decor_create(struct xwayland_surface *xsurface) {
     int h = theme->height;
     int bw = config.border_width;
     
+    // Create decoration tree as child of layer_windows
     d->tree = wlr_scene_tree_create(server->layer_windows);
     if (!d->tree) return;
     
@@ -58,8 +60,8 @@ static void xwayland_decor_create(struct xwayland_surface *xsurface) {
     int window_width = xs->width > 0 ? xs->width : 800;
     int window_height = xs->height > 0 ? xs->height : 600;
     
-    // Create shadow
-    d->shadow = create_shadow_buffer(server->layer_windows, window_width, 
+    // Create shadow as part of the decoration tree
+    d->shadow = create_shadow_buffer(d->tree, window_width, 
                                       window_height + h, &config.decor.shadow);
     if (d->shadow) {
         wlr_scene_node_lower_to_bottom(&d->shadow->node);
@@ -68,12 +70,9 @@ static void xwayland_decor_create(struct xwayland_surface *xsurface) {
     // Create titlebar
     d->rendered_titlebar = titlebar_render_create(d->tree, theme);
     if (!d->rendered_titlebar) {
-        if (d->shadow) {
-            wlr_scene_node_destroy(&d->shadow->node);
-            d->shadow = NULL;
-        }
         wlr_scene_node_destroy(&d->tree->node);
         d->tree = NULL;
+        d->shadow = NULL;
         return;
     }
     
@@ -88,13 +87,10 @@ static void xwayland_decor_create(struct xwayland_surface *xsurface) {
     
     if (!d->border_top || !d->border_bottom || !d->border_left || !d->border_right) {
         if (d->rendered_titlebar) titlebar_render_destroy(d->rendered_titlebar);
-        if (d->shadow) {
-            wlr_scene_node_destroy(&d->shadow->node);
-            d->shadow = NULL;
-        }
         wlr_scene_node_destroy(&d->tree->node);
         d->tree = NULL;
         d->rendered_titlebar = NULL;
+        d->shadow = NULL;
         return;
     }
     
@@ -117,28 +113,47 @@ static void xwayland_decor_create(struct xwayland_surface *xsurface) {
 }
 
 static void xwayland_decor_destroy(struct xwayland_surface *xsurface) {
-    if (!xsurface->decor.tree) return;
+    if (!xsurface) return;
     
-    if (xsurface->decor.shadow) {
-        wlr_scene_node_destroy(&xsurface->decor.shadow->node);
-        xsurface->decor.shadow = NULL;
+    struct decoration *d = &xsurface->decor;
+    
+    // If there's no decoration tree, nothing to clean up
+    if (!d->tree) {
+        d->shadow = NULL;
+        d->rendered_titlebar = NULL;
+        d->border_top = NULL;
+        d->border_bottom = NULL;
+        d->border_left = NULL;
+        d->border_right = NULL;
+        return;
     }
     
-    if (xsurface->decor.rendered_titlebar) {
-        titlebar_render_destroy(xsurface->decor.rendered_titlebar);
-        xsurface->decor.rendered_titlebar = NULL;
+    // Unparent the scene_tree from decorations before destroying
+    // This prevents the X11 surface from being destroyed with decorations
+    if (xsurface->scene_tree && xsurface->scene_tree->node.parent == d->tree) {
+        wlr_scene_node_reparent(&xsurface->scene_tree->node, xsurface->server->layer_windows);
     }
     
-    wlr_scene_node_destroy(&xsurface->decor.tree->node);
-    xsurface->decor.tree = NULL;
-    xsurface->decor.border_top = NULL;
-    xsurface->decor.border_bottom = NULL;
-    xsurface->decor.border_left = NULL;
-    xsurface->decor.border_right = NULL;
+    // Destroy rendered titlebar first (it has its own cleanup)
+    if (d->rendered_titlebar) {
+        titlebar_render_destroy(d->rendered_titlebar);
+        d->rendered_titlebar = NULL;
+    }
+    
+    // Shadow is part of the tree, will be destroyed with it
+    d->shadow = NULL;
+    
+    // Destroy the decoration tree (this destroys all children including borders)
+    wlr_scene_node_destroy(&d->tree->node);
+    d->tree = NULL;
+    d->border_top = NULL;
+    d->border_bottom = NULL;
+    d->border_left = NULL;
+    d->border_right = NULL;
 }
 
 static void xwayland_decor_update(struct xwayland_surface *xsurface, bool focused) {
-    if (!config.decor.enabled || !xsurface->decor.tree) return;
+    if (!config.decor.enabled || !xsurface || !xsurface->decor.tree) return;
     
     struct titlebar_theme *theme = titlebar_get_global_theme();
     if (!theme) return;
@@ -166,6 +181,51 @@ static void xwayland_decor_update(struct xwayland_surface *xsurface, bool focuse
     if (d->border_right) wlr_scene_rect_set_color(d->border_right, border);
 }
 
+static void xwayland_decor_set_size(struct xwayland_surface *xsurface, int width, int height) {
+    if (!config.decor.enabled || !xsurface || !xsurface->decor.tree) return;
+    
+    struct titlebar_theme *theme = titlebar_get_global_theme();
+    if (!theme) return;
+    
+    struct decoration *d = &xsurface->decor;
+    int h = theme->height;
+    int bw = config.border_width;
+    int total_height = h + height;
+    
+    d->width = width;
+    
+    // Update titlebar
+    if (d->rendered_titlebar) {
+        const char *title = xsurface->xwayland_surface->title;
+        if (!title) title = xsurface->xwayland_surface->class;
+        if (!title) title = "X11 Window";
+        
+        bool active = true; // Will be updated separately
+        titlebar_render_update(d->rendered_titlebar, theme, width, title, active);
+    }
+    
+    // Update borders
+    if (d->border_top) {
+        wlr_scene_rect_set_size(d->border_top, width + bw * 2, bw);
+        wlr_scene_node_set_position(&d->border_top->node, -bw, -bw);
+    }
+    
+    if (d->border_bottom) {
+        wlr_scene_rect_set_size(d->border_bottom, width + bw * 2, bw);
+        wlr_scene_node_set_position(&d->border_bottom->node, -bw, total_height);
+    }
+    
+    if (d->border_left) {
+        wlr_scene_rect_set_size(d->border_left, bw, total_height + bw * 2);
+        wlr_scene_node_set_position(&d->border_left->node, -bw, -bw);
+    }
+    
+    if (d->border_right) {
+        wlr_scene_rect_set_size(d->border_right, bw, total_height + bw * 2);
+        wlr_scene_node_set_position(&d->border_right->node, width, -bw);
+    }
+}
+
 static void xwayland_surface_associate(struct wl_listener *listener, void *data) {
   struct xwayland_surface *xsurface = wl_container_of(listener, xsurface, map);
   (void)data;
@@ -191,10 +251,12 @@ static void xwayland_surface_dissociate(struct wl_listener *listener, void *data
   
   printf("XWayland surface dissociated\n");
   
-  if (xsurface->scene_tree) {
-    wlr_scene_node_destroy(&xsurface->scene_tree->node);
-    xsurface->scene_tree = NULL;
-  }
+  // Remove listeners for map/unmap if they were added
+  wl_list_remove(&xsurface->surface_map.link);
+  wl_list_init(&xsurface->surface_map.link);
+  
+  // The unmap listener removal is tricky - only remove if it was added
+  // during associate (not during creation)
 }
 
 static void xwayland_surface_map(struct wl_listener *listener, void *data) {
@@ -259,7 +321,11 @@ static void xwayland_surface_map(struct wl_listener *listener, void *data) {
       wlr_xwayland_surface_configure(xs, cx, cy, xs->width, xs->height);
     }
     
-    wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
+    if (xsurface->decor.tree) {
+      wlr_scene_node_raise_to_top(&xsurface->decor.tree->node);
+    } else {
+      wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
+    }
   }
 
   // Arrange in tiling layout
@@ -308,15 +374,23 @@ static void xwayland_surface_unmap(struct wl_listener *listener, void *data) {
   printf("XWayland surface unmapping: %s\n", 
          xsurface->xwayland_surface->title ? xsurface->xwayland_surface->title : "null");
 
+  // Clear cursor state if this surface was being interacted with
+  if (cursor_state.xwayland == xsurface) {
+    cursor_state.mode = CURSOR_NORMAL;
+    cursor_state.xwayland = NULL;
+    cursor_state.toplevel = NULL;
+  }
+
   // Destroy decorations first
   xwayland_decor_destroy(xsurface);
 
-  // DON'T destroy scene_tree here - it's managed by wlroots
-  // Just set pointer to NULL
+  // The scene_tree for XWayland is managed by wlroots
+  // It gets destroyed automatically when the surface is unmapped
+  // We just clear our pointer
   xsurface->scene_tree = NULL;
   
   // Rearrange remaining windows
-  if (!xsurface->override_redirect) {
+  if (!xsurface->override_redirect && xsurface->server) {
     arrange_windows(xsurface->server);
   }
 }
@@ -328,16 +402,21 @@ static void xwayland_surface_destroy(struct wl_listener *listener, void *data) {
 
   printf("XWayland surface destroying: %p\n", (void*)xsurface->xwayland_surface);
 
-  // Clean up decorations
+  // Clear any cursor state references
+  if (cursor_state.xwayland == xsurface) {
+    cursor_state.mode = CURSOR_NORMAL;
+    cursor_state.xwayland = NULL;
+    cursor_state.toplevel = NULL;
+  }
+
+  // Clean up decorations if they still exist
   xwayland_decor_destroy(xsurface);
 
-  // DON'T destroy scene_tree - wlroots handles it
+  // Scene tree is managed by wlroots
   xsurface->scene_tree = NULL;
 
-  // Remove listeners
+  // Remove all listeners safely
   wl_list_remove(&xsurface->map.link);
-  wl_list_remove(&xsurface->unmap.link);
-  wl_list_remove(&xsurface->surface_map.link);
   wl_list_remove(&xsurface->destroy.link);
   wl_list_remove(&xsurface->request_configure.link);
   wl_list_remove(&xsurface->request_fullscreen.link);
@@ -352,6 +431,14 @@ static void xwayland_surface_destroy(struct wl_listener *listener, void *data) {
   wl_list_remove(&xsurface->set_window_type.link);
   wl_list_remove(&xsurface->set_override_redirect.link);
   wl_list_remove(&xsurface->link);
+  
+  // These may or may not have been initialized, check if they're in a list
+  if (!wl_list_empty(&xsurface->unmap.link)) {
+    wl_list_remove(&xsurface->unmap.link);
+  }
+  if (!wl_list_empty(&xsurface->surface_map.link)) {
+    wl_list_remove(&xsurface->surface_map.link);
+  }
 
   free(xsurface);
 }
@@ -382,6 +469,11 @@ static void xwayland_surface_request_configure(struct wl_listener *listener,
     struct wlr_scene_node *node = xsurface->decor.tree ?
         &xsurface->decor.tree->node : &xsurface->scene_tree->node;
     wlr_scene_node_set_position(node, event->x, event->y);
+    
+    // Update decoration size if needed
+    if (xsurface->decor.tree) {
+      xwayland_decor_set_size(xsurface, event->width, event->height);
+    }
   }
 }
 
@@ -394,13 +486,45 @@ static void xwayland_surface_request_fullscreen(struct wl_listener *listener,
   xsurface->fullscreen = fullscreen;
 
   if (fullscreen) {
+    // Save current state
+    if (xsurface->scene_tree) {
+      struct wlr_scene_node *node = xsurface->decor.tree ?
+          &xsurface->decor.tree->node : &xsurface->scene_tree->node;
+      xsurface->saved_x = node->x;
+      xsurface->saved_y = node->y;
+      xsurface->saved_width = xsurface->xwayland_surface->width;
+      xsurface->saved_height = xsurface->xwayland_surface->height;
+      
+      // Hide decorations
+      if (xsurface->decor.tree) {
+        wlr_scene_node_set_enabled(&xsurface->decor.tree->node, false);
+      }
+    }
+    
     struct output *output;
     wl_list_for_each(output, &xsurface->server->outputs, link) {
+      if (xsurface->scene_tree) {
+        wlr_scene_node_set_position(&xsurface->scene_tree->node, 0, 0);
+      }
       wlr_xwayland_surface_configure(xsurface->xwayland_surface, 0, 0,
                                      output->wlr_output->width,
                                      output->wlr_output->height);
       break;
     }
+  } else {
+    // Restore state
+    if (xsurface->decor.tree) {
+      wlr_scene_node_set_enabled(&xsurface->decor.tree->node, true);
+    }
+    
+    struct wlr_scene_node *node = xsurface->decor.tree ?
+        &xsurface->decor.tree->node : (xsurface->scene_tree ? &xsurface->scene_tree->node : NULL);
+    if (node) {
+      wlr_scene_node_set_position(node, xsurface->saved_x, xsurface->saved_y);
+    }
+    wlr_xwayland_surface_configure(xsurface->xwayland_surface,
+                                   xsurface->saved_x, xsurface->saved_y,
+                                   xsurface->saved_width, xsurface->saved_height);
   }
 }
 
@@ -411,9 +535,9 @@ static void xwayland_surface_request_minimize(struct wl_listener *listener,
 
   xsurface->minimized = xsurface->xwayland_surface->minimized;
   
-  if (xsurface->scene_tree) {
-    struct wlr_scene_node *node = xsurface->decor.tree ?
-        &xsurface->decor.tree->node : &xsurface->scene_tree->node;
+  struct wlr_scene_node *node = xsurface->decor.tree ?
+      &xsurface->decor.tree->node : (xsurface->scene_tree ? &xsurface->scene_tree->node : NULL);
+  if (node) {
     wlr_scene_node_set_enabled(node, !xsurface->minimized);
   }
 }
@@ -442,6 +566,13 @@ static void xwayland_surface_request_activate(struct wl_listener *listener,
   
   // Update decoration focus
   xwayland_decor_update(xsurface, true);
+  
+  // Raise window
+  if (xsurface->decor.tree) {
+    wlr_scene_node_raise_to_top(&xsurface->decor.tree->node);
+  } else if (xsurface->scene_tree) {
+    wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
+  }
 }
 
 static void xwayland_surface_set_title(struct wl_listener *listener,
@@ -581,9 +712,10 @@ static void xwayland_surface_request_move(struct wl_listener *listener,
          xsurface->xwayland_surface->title ?
          xsurface->xwayland_surface->title : "untitled");
 
-  if (xsurface->server->seat) {
+  if (xsurface->server->seat && xsurface->scene_tree) {
     cursor_state.mode = CURSOR_MOVE;
     cursor_state.toplevel = NULL;
+    cursor_state.xwayland = xsurface;
     
     struct wlr_scene_node *node = xsurface->decor.tree ?
         &xsurface->decor.tree->node : &xsurface->scene_tree->node;
@@ -609,6 +741,7 @@ static void xwayland_surface_request_resize(struct wl_listener *listener,
 
   cursor_state.mode = CURSOR_RESIZE;
   cursor_state.toplevel = NULL;
+  cursor_state.xwayland = xsurface;
   cursor_state.resize_edges = event->edges;
   cursor_state.grab_x = xsurface->server->cursor->x;
   cursor_state.grab_y = xsurface->server->cursor->y;
@@ -632,12 +765,18 @@ static void server_new_xwayland_surface(struct wl_listener *listener,
   xsurface->server = server;
   xsurface->xwayland_surface = xwayland_surface;
   xsurface->override_redirect = xwayland_surface->override_redirect;
+  
+  // Initialize listener links as empty
+  wl_list_init(&xsurface->unmap.link);
+  wl_list_init(&xsurface->surface_map.link);
 
   xsurface->map.notify = xwayland_surface_associate;
   wl_signal_add(&xwayland_surface->events.associate, &xsurface->map);
 
-  xsurface->unmap.notify = xwayland_surface_dissociate;
-  wl_signal_add(&xwayland_surface->events.dissociate, &xsurface->unmap);
+  // dissociate listener uses unmap member
+  struct wl_listener dissociate_listener;
+  dissociate_listener.notify = xwayland_surface_dissociate;
+  wl_signal_add(&xwayland_surface->events.dissociate, &dissociate_listener);
 
   xsurface->destroy.notify = xwayland_surface_destroy;
   wl_signal_add(&xwayland_surface->events.destroy, &xsurface->destroy);
@@ -770,48 +909,59 @@ void xwayland_finish(struct server *server) {
 }
 
 void xwayland_surface_raise(struct xwayland_surface *xsurface) {
-  if (!xsurface || !xsurface->scene_tree) {
-    return;
+  if (!xsurface) return;
+
+  struct wlr_scene_node *node = xsurface->decor.tree ?
+      &xsurface->decor.tree->node : (xsurface->scene_tree ? &xsurface->scene_tree->node : NULL);
+  
+  if (node) {
+    wlr_scene_node_raise_to_top(node);
   }
 
-  wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
-
+  // Raise children
   struct xwayland_surface *child;
   wl_list_for_each(child, &xsurface->server->xwayland_surfaces, link) {
-    if (child->parent == xsurface && child->scene_tree) {
-      wlr_scene_node_raise_to_top(&child->scene_tree->node);
+    if (child->parent == xsurface) {
+      xwayland_surface_raise(child);
     }
   }
 }
 
 void xwayland_surface_lower(struct xwayland_surface *xsurface) {
-  if (!xsurface || !xsurface->scene_tree) {
-    return;
-  }
+  if (!xsurface) return;
 
+  // Lower children first
   struct xwayland_surface *child;
   wl_list_for_each(child, &xsurface->server->xwayland_surfaces, link) {
-    if (child->parent == xsurface && child->scene_tree) {
-      wlr_scene_node_lower_to_bottom(&child->scene_tree->node);
+    if (child->parent == xsurface) {
+      xwayland_surface_lower(child);
     }
   }
 
-  wlr_scene_node_lower_to_bottom(&xsurface->scene_tree->node);
+  struct wlr_scene_node *node = xsurface->decor.tree ?
+      &xsurface->decor.tree->node : (xsurface->scene_tree ? &xsurface->scene_tree->node : NULL);
+  
+  if (node) {
+    wlr_scene_node_lower_to_bottom(node);
+  }
 }
 
 void xwayland_surface_restack(struct xwayland_surface *xsurface,
                                struct xwayland_surface *sibling,
                                bool above) {
-  if (!xsurface || !xsurface->scene_tree || !sibling || !sibling->scene_tree) {
-    return;
-  }
+  if (!xsurface || !sibling) return;
+
+  struct wlr_scene_node *node = xsurface->decor.tree ?
+      &xsurface->decor.tree->node : (xsurface->scene_tree ? &xsurface->scene_tree->node : NULL);
+  struct wlr_scene_node *sibling_node = sibling->decor.tree ?
+      &sibling->decor.tree->node : (sibling->scene_tree ? &sibling->scene_tree->node : NULL);
+
+  if (!node || !sibling_node) return;
 
   if (above) {
-    wlr_scene_node_place_above(&xsurface->scene_tree->node,
-                                &sibling->scene_tree->node);
+    wlr_scene_node_place_above(node, sibling_node);
   } else {
-    wlr_scene_node_place_below(&xsurface->scene_tree->node,
-                                &sibling->scene_tree->node);
+    wlr_scene_node_place_below(node, sibling_node);
   }
 }
 
@@ -868,6 +1018,14 @@ void xwayland_surface_focus(struct xwayland_surface *xsurface) {
     return;
   }
 
+  // Unfocus other XWayland surfaces
+  struct xwayland_surface *other;
+  wl_list_for_each(other, &server->xwayland_surfaces, link) {
+    if (other != xsurface && !other->override_redirect) {
+      xwayland_decor_update(other, false);
+    }
+  }
+
   wlr_xwayland_surface_activate(xs, true);
 
   if (server->seat && xs->surface->mapped) {
@@ -892,6 +1050,7 @@ void xwayland_surface_configure(struct xwayland_surface *xsurface,
 
   struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
 
+  // Respect size hints
   if (xs->size_hints) {
     if (xs->size_hints->min_width > 0 && width < xs->size_hints->min_width) {
       width = xs->size_hints->min_width;
@@ -914,6 +1073,11 @@ void xwayland_surface_configure(struct xwayland_surface *xsurface,
     struct wlr_scene_node *node = xsurface->decor.tree ?
         &xsurface->decor.tree->node : &xsurface->scene_tree->node;
     wlr_scene_node_set_position(node, x, y);
+    
+    // Update decoration size
+    if (xsurface->decor.tree) {
+      xwayland_decor_set_size(xsurface, width, height);
+    }
   }
 }
 
