@@ -121,6 +121,7 @@ struct layer_surface {
 
 struct cursor_state {
   struct toplevel *toplevel;
+struct xwayland_surface *xwayland;  // ADD THIS
   double grab_x, grab_y;
   struct wlr_box grab_box;
   enum cursor_mode mode;
@@ -304,7 +305,32 @@ struct keyboard {
   struct wl_listener destroy;
   struct wl_listener modifiers;
 };
+// Add to core.h
+enum window_type {
+    WINDOW_XDG,
+    WINDOW_XWAYLAND,
+};
 
+struct window {
+    struct wl_list link;
+    struct server *server;
+    enum window_type type;
+    
+    union {
+        struct toplevel *xdg;
+        struct xwayland_surface *xwayland;
+    };
+    
+    // Common properties
+    bool floating;
+    bool fullscreen;
+    bool minimized;
+    bool maximized;
+    int workspace;
+    struct decoration decor;
+    struct animation anim;
+    float opacity;
+};
 /* core.c */
 void server_new_output(struct wl_listener *listener, void *data);
 void cursor_motion(struct wl_listener *listener, void *data);
@@ -327,7 +353,48 @@ int xwayland_init(struct server *server);
 void xwayland_finish(struct server *server);
 
 /* XWayland helpers - forward declaration of internal struct */
-struct xwayland_surface;
+struct xwayland_surface {
+  struct wl_list link;
+  struct server *server;
+  struct wlr_xwayland_surface *xwayland_surface;
+  struct wlr_scene_tree *scene_tree;
+  
+  // Window state tracking
+  bool override_redirect;
+  bool is_popup;
+  bool is_dialog;
+  bool is_splash;
+  struct xwayland_surface *parent;
+  
+  // Window management properties
+  bool floating;
+  bool fullscreen;
+  bool minimized;
+  bool maximized;
+  int workspace;
+  struct decoration decor;
+  struct animation anim;
+  float opacity;
+  int saved_x, saved_y, saved_width, saved_height;
+  int pre_max_x, pre_max_y, pre_max_width, pre_max_height;
+  
+  struct wl_listener map;
+  struct wl_listener unmap;
+  struct wl_listener surface_map;
+  struct wl_listener destroy;
+  struct wl_listener request_configure;
+  struct wl_listener request_fullscreen;
+  struct wl_listener request_minimize;
+  struct wl_listener request_activate;
+  struct wl_listener request_move;
+  struct wl_listener request_resize;
+  struct wl_listener set_title;
+  struct wl_listener set_class;
+  struct wl_listener set_parent;
+  struct wl_listener set_hints;
+  struct wl_listener set_window_type;
+  struct wl_listener set_override_redirect;
+};
 struct xwayland_surface *xwayland_surface_at(struct server *server,
                                               double lx, double ly,
                                               struct wlr_surface **surface,
@@ -475,5 +542,6 @@ int lerp_int(int a, int b, float t);
 void *timer_schedule(struct server *server, int ms, void (*callback)(void *),
                      void *data);
 void timer_cancel(void *timer_handle);
-
+void xwayland_surface_configure(struct xwayland_surface *xsurface,
+                                 int x, int y, int width, int height);
 #endif
