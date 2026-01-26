@@ -16,6 +16,7 @@
 #include <wlr/types/wlr_data_control_v1.h>
 
 #include "decor_visual.h"
+
 int main(void) {
     wlr_log_init(WLR_DEBUG, NULL);
 
@@ -40,7 +41,7 @@ int main(void) {
 
     server.allocator = wlr_allocator_autocreate(server.backend, server.renderer);
 
-    wlr_compositor_create(server.display, 5, server.renderer);
+    server.compositor = wlr_compositor_create(server.display, 5, server.renderer);
     wlr_subcompositor_create(server.display);
     wlr_data_device_manager_create(server.display);
 
@@ -63,26 +64,50 @@ int main(void) {
     // XDG output
     wlr_xdg_output_manager_v1_create(server.display, server.output_layout);
 
-    // Screencopy
+    // Screencopy (already exists - keep it)
     wlr_screencopy_manager_v1_create(server.display);
 
-    // Data control
-    wlr_data_control_manager_v1_create(server.display);
+    // *** NEW: Clipboard support ***
+    if (clipboard_init(&server) < 0) {
+        fprintf(stderr, "Warning: Clipboard initialization failed\n");
+    }
 
-    // XDG decoration
+    // *** NEW: Idle and locking support ***
+    if (idle_init(&server) < 0) {
+        fprintf(stderr, "Warning: Idle management initialization failed\n");
+    }
+    if (session_lock_init(&server) < 0) {
+        fprintf(stderr, "Warning: Session lock initialization failed\n");
+    }
+
+    // *** NEW: Multi-monitor support ***
+    if (multimonitor_init(&server) < 0) {
+        fprintf(stderr, "Warning: Multi-monitor initialization failed\n");
+    }
+
+    // *** NEW: IME support ***
+    if (ime_init(&server) < 0) {
+        fprintf(stderr, "Warning: IME initialization failed\n");
+    }
+
+    // XDG decoration (already exists - keep it)
     server.xdg_decoration_mgr = wlr_xdg_decoration_manager_v1_create(server.display);
     server.new_xdg_decoration.notify = server_new_xdg_decoration;
-    wl_signal_add(&server.xdg_decoration_mgr->events.new_toplevel_decoration, &server.new_xdg_decoration);
+    wl_signal_add(&server.xdg_decoration_mgr->events.new_toplevel_decoration, 
+                  &server.new_xdg_decoration);
 
+    // Output handlers (already exists - keep it)
     server.new_output.notify = server_new_output;
     wl_signal_add(&server.backend->events.new_output, &server.new_output);
 
+    // XDG shell (already exists - keep it)
     server.xdg_shell = wlr_xdg_shell_create(server.display, 3);
     server.new_xdg_toplevel.notify = server_new_xdg_toplevel;
     wl_signal_add(&server.xdg_shell->events.new_toplevel, &server.new_xdg_toplevel);
     server.new_xdg_popup.notify = server_new_xdg_popup;
     wl_signal_add(&server.xdg_shell->events.new_popup, &server.new_xdg_popup);
 
+    // Cursor and input (already exists - keep it)
     server.cursor = wlr_cursor_create();
     wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
     server.cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
@@ -98,7 +123,7 @@ int main(void) {
     server.cursor_frame.notify = cursor_frame;
     wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
 
-    // Gesture support
+    // Gestures (already exists - keep it)
     server.gesture_swipe_begin.notify = gesture_swipe_begin;
     wl_signal_add(&server.cursor->events.swipe_begin, &server.gesture_swipe_begin);
     server.gesture_swipe_update.notify = gesture_swipe_update;
@@ -125,40 +150,28 @@ int main(void) {
     server.request_cursor.notify = request_cursor;
     wl_signal_add(&server.seat->events.request_set_cursor, &server.request_cursor);
 
-    // Load config
+    // Load config (already exists - keep it)
     char config_file[512];
-    snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", getenv("HOME"));
+    snprintf(config_file, sizeof(config_file), "%s/.config/starview/starview.toml", 
+             getenv("HOME"));
     config_load(config_file);
- struct titlebar_theme *theme = titlebar_theme_create();
 
-// Load settings from config instead of using preset
-titlebar_theme_load_from_config(theme, &config.decor);
+    // Titlebar theme (already exists - keep it)
+    struct titlebar_theme *theme = titlebar_theme_create();
+    titlebar_theme_load_from_config(theme, &config.decor);
+    titlebar_set_global_theme(theme);
+    printf("✓ Titlebar theme initialized from config\n");
 
-// Set as global theme
-titlebar_set_global_theme(theme);
-
-printf("✓ Titlebar theme initialized from config\n");
- fprintf(stderr, "[GESTURE] Loaded config:\n");
-    fprintf(stderr, "[GESTURE]   Touchpad gestures: %d\n", config.gesture_touchpad_count);
-    fprintf(stderr, "[GESTURE]   Mouse gestures: %d\n", config.gesture_mouse_count);
-    fprintf(stderr, "[GESTURE]   Mouse threshold: %.1f\n", config.gesture_mouse_threshold);
-    for (int i = 0; i < config.gesture_mouse_count; i++) {
-        fprintf(stderr, "[GESTURE]     %d: button=%u, mods=0x%x, dir=%d, action=%d\n",
-                i, config.gesture_mouse[i].button, 
-                config.gesture_mouse[i].modifiers,
-                config.gesture_mouse[i].direction,
-                config.gesture_mouse[i].action.type);
-    }
-    // Initialize IPC
+    // IPC (already exists - keep it)
     if (ipc_init(&server) < 0) {
         fprintf(stderr, "Warning: Failed to initialize IPC\n");
     }
-    
 
-    // Set mode from config
+    // Set mode from config (already exists - keep it)
     server.mode = config.default_mode;
- server.preselect = PRESELECT_NONE;
-    // Run autostart
+    server.preselect = PRESELECT_NONE;
+
+    // Run autostart (already exists - keep it)
     for (int i = 0; i < config.autostart_count; i++) {
         if (fork() == 0) {
             execl("/bin/sh", "sh", "-c", config.autostart[i], NULL);
@@ -177,24 +190,27 @@ printf("✓ Titlebar theme initialized from config\n");
         return 1;
     }
 
+    // *** NEW: Initialize XWayland (do this AFTER backend starts) ***
+    if (xwayland_init(&server) < 0) {
+        fprintf(stderr, "Warning: XWayland initialization failed\n");
+    }
+
     setenv("WAYLAND_DISPLAY", socket, 1);
     printf("Running on WAYLAND_DISPLAY=%s\n", socket);
     printf("Mode: %s\n", server.mode == MODE_TILING ? "TILING" : "FLOATING");
     printf("Gesture support enabled\n");
-   struct output *output;
+
+    // Update backgrounds (already exists - keep it)
+    struct output *output;
     wl_list_for_each(output, &server.outputs, link) {
         if (output->background && config.background.enabled) {
             int width = output->wlr_output->width;
             int height = output->wlr_output->height;
-            
-            // Use update instead of recreate
             background_update(output->background, width, height, &config.background);
-            
-            fprintf(stderr, "[MAIN] Updated background after config: %dx%d, path='%s'\n",
-                    width, height, config.background.image_path);
         }
     }
-    // Launch terminal
+
+    // Launch terminal (already exists - keep it)
     pid_t pid = fork();
     if (pid == 0) {
         execlp("foot", "foot", NULL);
@@ -204,7 +220,9 @@ printf("✓ Titlebar theme initialized from config\n");
 
     wl_display_run(server.display);
     
+    // Cleanup
     ipc_finish(&server);
+    xwayland_finish(&server);
     wl_display_destroy(server.display);
     return 0;
 }

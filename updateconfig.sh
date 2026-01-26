@@ -30,7 +30,7 @@ cat > "$CONFIG_DIR/background.toml" << 'EOF'
 [background]
 enabled = true
 color = "#000000"
-image = "/home/link/Pictures/Wallpaper/wallhaven.cc/8xx1wj.png"
+image = "/home/link/Pictures/wallpapers/Arch-chan_to.png"
 mode = "fill"
 EOF
 cat > "$CONFIG_DIR/gestures.toml" << 'EOF'

@@ -130,11 +130,11 @@ struct cursor_state {
 extern struct cursor_state cursor_state;
 
 enum preselect_dir {
-    PRESELECT_NONE,
-    PRESELECT_LEFT,
-    PRESELECT_RIGHT,
-    PRESELECT_UP,
-    PRESELECT_DOWN,
+  PRESELECT_NONE,
+  PRESELECT_LEFT,
+  PRESELECT_RIGHT,
+  PRESELECT_UP,
+  PRESELECT_DOWN,
 };
 
 struct server {
@@ -149,21 +149,50 @@ struct server {
   struct wlr_seat *seat;
   struct wlr_cursor *cursor;
   struct wlr_xcursor_manager *cursor_mgr;
-enum preselect_dir preselect;
-struct wl_listener gesture_swipe_begin;
-struct wl_listener gesture_swipe_update;
-struct wl_listener gesture_swipe_end;
-struct wl_listener gesture_pinch_begin;
-struct wl_listener gesture_pinch_update;
-struct wl_listener gesture_pinch_end;
-struct wl_listener gesture_hold_begin;
-struct wl_listener gesture_hold_end;
+  enum preselect_dir preselect;
+  struct wl_listener gesture_swipe_begin;
+  struct wl_listener gesture_swipe_update;
+  struct wl_listener gesture_swipe_end;
+  struct wl_listener gesture_pinch_begin;
+  struct wl_listener gesture_pinch_update;
+  struct wl_listener gesture_pinch_end;
+  struct wl_listener gesture_hold_begin;
+  struct wl_listener gesture_hold_end;
+  struct wlr_xwayland *xwayland;
+  struct wl_listener new_xwayland_surface;
+  struct wl_list xwayland_surfaces;
   struct wlr_layer_shell_v1 *layer_shell;
   struct wl_listener new_layer_surface;
-
+  struct wlr_compositor *compositor;
   struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
   struct wl_listener new_xdg_decoration;
-
+  
+  // Clipboard
+  struct wlr_primary_selection_v1_device_manager *primary_selection;
+  struct wlr_data_control_manager_v1 *data_control;
+  
+  // Idle and locking
+  struct wlr_idle_notifier_v1 *idle_notifier;
+  struct wlr_idle_inhibit_v1 *idle_inhibit;
+  struct wlr_session_lock_manager_v1 *session_lock_mgr;
+  struct wl_listener new_session_lock;
+  struct wlr_session_lock_v1 *locked;
+  
+  // Multi-monitor
+  struct wlr_output_manager_v1 *output_manager;
+  struct wlr_output_power_manager_v1 *output_power_manager;
+  struct wl_listener output_manager_apply;
+  struct wl_listener output_manager_test;
+  struct wl_listener output_power_mgr_set_mode;
+  
+  // IME
+  struct wlr_text_input_manager_v3 *text_input;
+  struct wlr_input_method_manager_v2 *input_method_mgr;
+  struct wl_listener new_text_input;
+  struct wl_listener new_input_method;
+  struct wlr_input_method_v2 *input_method;
+  struct wlr_text_input_v3 *active_text_input;
+  
   struct wl_listener new_output;
   struct wl_listener new_xdg_toplevel;
   struct wl_listener new_xdg_popup;
@@ -175,7 +204,6 @@ struct wl_listener gesture_hold_end;
   struct wl_listener new_input;
   struct wl_listener request_cursor;
 
-
   struct wlr_scene_tree *layer_bg;
   struct wlr_scene_tree *layer_bottom;
   struct wlr_scene_tree *layer_windows;
@@ -185,7 +213,7 @@ struct wl_listener gesture_hold_end;
   struct wl_list outputs;
   struct wl_list toplevels;
   struct wl_list keyboards;
-  struct wl_list layers;  /* list of layer_surface */
+  struct wl_list layers; /* list of layer_surface */
 
   enum window_mode mode;
   int current_workspace;
@@ -197,12 +225,15 @@ void decor_set_position(struct toplevel *toplevel, int x, int y);
 struct output {
   struct wl_list link;
   struct server *server;
+  int current_workspace;  // Each output tracks its own workspace
+  char name[64];
+  char description[128];
   struct wlr_output *wlr_output;
   struct wlr_scene_output *scene_output;
   struct wl_listener frame;
   struct wl_listener request_state;
   struct wl_listener destroy;
-  
+
   /* Background */
   struct wlr_scene_buffer *background;
 };
@@ -220,7 +251,7 @@ struct decoration {
   struct wlr_scene_rect *border_left;
   struct wlr_scene_rect *border_right;
   struct wlr_scene_buffer *shadow;
-  
+
   /* Cairo-rendered titlebar */
   struct rendered_titlebar *rendered_titlebar;
 
@@ -228,7 +259,7 @@ struct decoration {
   bool hovered_close;
   bool hovered_max;
   bool hovered_min;
-  
+
   /* Shadow cache */
   int cached_shadow_width;
   int cached_shadow_height;
@@ -284,6 +315,15 @@ void new_input(struct wl_listener *listener, void *data);
 void server_new_xdg_popup(struct wl_listener *listener, void *data);
 void server_new_xdg_decoration(struct wl_listener *listener, void *data);
 void server_new_layer_surface(struct wl_listener *listener, void *data);
+
+/* New protocol initialization functions */
+int clipboard_init(struct server *server);
+int idle_init(struct server *server);
+int session_lock_init(struct server *server);
+int multimonitor_init(struct server *server);
+int ime_init(struct server *server);
+int xwayland_init(struct server *server);
+void xwayland_finish(struct server *server);
 
 struct toplevel *toplevel_at(struct server *server, double lx, double ly,
                              struct wlr_surface **surface, double *sx,
@@ -411,7 +451,6 @@ void toplevel_animate_fade_out(struct toplevel *toplevel,
 
 uint32_t color_lerp(uint32_t a, uint32_t b, float t);
 uint32_t color_brighten(uint32_t color, float amount);
-
 
 char *string_copy(const char *str);
 bool string_starts_with(const char *str, const char *prefix);
