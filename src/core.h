@@ -160,6 +160,7 @@ struct server {
   struct wl_listener gesture_hold_end;
   struct wlr_xwayland *xwayland;
   struct wl_listener new_xwayland_surface;
+  struct wl_listener xwayland_ready;
   struct wl_list xwayland_surfaces;
   struct wlr_layer_shell_v1 *layer_shell;
   struct wl_listener new_layer_surface;
@@ -324,6 +325,16 @@ int multimonitor_init(struct server *server);
 int ime_init(struct server *server);
 int xwayland_init(struct server *server);
 void xwayland_finish(struct server *server);
+
+/* XWayland helpers - forward declaration of internal struct */
+struct xwayland_surface;
+struct xwayland_surface *xwayland_surface_at(struct server *server,
+                                              double lx, double ly,
+                                              struct wlr_surface **surface,
+                                              double *sx, double *sy);
+void xwayland_surface_focus(struct xwayland_surface *xsurface);
+void xwayland_surface_raise(struct xwayland_surface *xsurface);
+void xwayland_surface_lower(struct xwayland_surface *xsurface);
 
 struct toplevel *toplevel_at(struct server *server, double lx, double ly,
                              struct wlr_surface **surface, double *sx,

@@ -13,8 +13,11 @@
 #include "core.h"
 #include <stdlib.h>
 #include <wlr/xwayland.h>
+#include <wlr/xwayland/shell.h>
 #include <wlr/types/wlr_text_input_v3.h>
 #include <wlr/types/wlr_input_method_v2.h>
+#include <xcb/xcb.h>
+#include <xcb/xcb_icccm.h>
 #include <wlr/types/wlr_primary_selection_v1.h>
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
@@ -43,8 +46,21 @@ struct xwayland_surface {
   struct wl_listener request_fullscreen;
   struct wl_listener request_minimize;
   struct wl_listener request_activate;
+  struct wl_listener request_move;
+  struct wl_listener request_resize;
   struct wl_listener set_title;
   struct wl_listener set_class;
+  struct wl_listener set_parent;
+  struct wl_listener set_hints;
+  struct wl_listener set_window_type;
+  struct wl_listener set_override_redirect;
+
+  // Window state tracking
+  bool override_redirect;
+  bool is_popup;       // Menus, tooltips, etc.
+  bool is_dialog;      // Transient dialogs
+  bool is_splash;      // Splash screens
+  struct xwayland_surface *parent;
 };
 
 // Forward declarations
@@ -93,9 +109,23 @@ static void xwayland_surface_map(struct wl_listener *listener, void *data) {
     return;
   }
 
+  // Determine the appropriate layer based on window type
+  struct wlr_scene_tree *parent_layer;
+
+  if (xsurface->override_redirect) {
+    // Override-redirect windows (menus, tooltips, popups) go on overlay
+    parent_layer = xsurface->server->layer_overlay;
+  } else if (xsurface->is_popup || xsurface->is_splash) {
+    // Popups and splash screens also go above normal windows
+    parent_layer = xsurface->server->layer_top;
+  } else {
+    // Normal X11 windows
+    parent_layer = xsurface->server->layer_windows;
+  }
+
   // Create scene node for X11 window
   xsurface->scene_tree = wlr_scene_subsurface_tree_create(
-      xsurface->server->layer_windows, xsurface->xwayland_surface->surface);
+      parent_layer, xsurface->xwayland_surface->surface);
 
   if (!xsurface->scene_tree) {
     fprintf(stderr, "Failed to create scene tree for XWayland surface\n");
@@ -109,11 +139,41 @@ static void xwayland_surface_map(struct wl_listener *listener, void *data) {
                               xsurface->xwayland_surface->x,
                               xsurface->xwayland_surface->y);
 
-  printf("XWayland surface mapped: %s (%s) at %d,%d\n",
+  // For dialogs with a parent, position relative to parent if not already positioned
+  if (xsurface->parent && xsurface->parent->scene_tree) {
+    struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+    struct wlr_xwayland_surface *parent_xs = xsurface->parent->xwayland_surface;
+
+    // If position is 0,0, center on parent
+    if (xs->x == 0 && xs->y == 0) {
+      int cx = parent_xs->x + (parent_xs->width - xs->width) / 2;
+      int cy = parent_xs->y + (parent_xs->height - xs->height) / 2;
+      wlr_scene_node_set_position(&xsurface->scene_tree->node, cx, cy);
+      wlr_xwayland_surface_configure(xs, cx, cy, xs->width, xs->height);
+    }
+
+    // Raise dialog above parent
+    wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
+  }
+
+  // Focus non-OR windows automatically if they're not popups
+  if (!xsurface->override_redirect && !xsurface->is_popup) {
+    wlr_xwayland_surface_activate(xsurface->xwayland_surface, true);
+    if (xsurface->server->seat && xsurface->xwayland_surface->surface) {
+      wlr_seat_keyboard_notify_enter(xsurface->server->seat,
+                                      xsurface->xwayland_surface->surface,
+                                      NULL, 0, NULL);
+    }
+  }
+
+  printf("XWayland surface mapped: %s (%s) at %d,%d [OR=%d popup=%d dialog=%d]\n",
          xsurface->xwayland_surface->title ? xsurface->xwayland_surface->title : "null",
          xsurface->xwayland_surface->class ? xsurface->xwayland_surface->class : "null",
          xsurface->xwayland_surface->x,
-         xsurface->xwayland_surface->y);
+         xsurface->xwayland_surface->y,
+         xsurface->override_redirect,
+         xsurface->is_popup,
+         xsurface->is_dialog);
 }
 
 static void xwayland_surface_unmap(struct wl_listener *listener, void *data) {
@@ -150,8 +210,14 @@ static void xwayland_surface_destroy(struct wl_listener *listener, void *data) {
   wl_list_remove(&xsurface->request_fullscreen.link);
   wl_list_remove(&xsurface->request_minimize.link);
   wl_list_remove(&xsurface->request_activate.link);
+  wl_list_remove(&xsurface->request_move.link);
+  wl_list_remove(&xsurface->request_resize.link);
   wl_list_remove(&xsurface->set_title.link);
   wl_list_remove(&xsurface->set_class.link);
+  wl_list_remove(&xsurface->set_parent.link);
+  wl_list_remove(&xsurface->set_hints.link);
+  wl_list_remove(&xsurface->set_window_type.link);
+  wl_list_remove(&xsurface->set_override_redirect.link);
   wl_list_remove(&xsurface->link);
 
   free(xsurface);
@@ -249,6 +315,177 @@ static void xwayland_surface_set_class(struct wl_listener *listener,
   }
 }
 
+static void xwayland_surface_set_parent(struct wl_listener *listener,
+                                        void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, set_parent);
+  (void)data;
+
+  struct wlr_xwayland_surface *parent_xsurface =
+      xsurface->xwayland_surface->parent;
+
+  if (parent_xsurface) {
+    // Find our parent xwayland_surface wrapper
+    struct xwayland_surface *parent;
+    wl_list_for_each(parent, &xsurface->server->xwayland_surfaces, link) {
+      if (parent->xwayland_surface == parent_xsurface) {
+        xsurface->parent = parent;
+        xsurface->is_dialog = true;
+        printf("XWayland surface has parent: %s\n",
+               parent_xsurface->title ? parent_xsurface->title : "untitled");
+        break;
+      }
+    }
+  } else {
+    xsurface->parent = NULL;
+    xsurface->is_dialog = false;
+  }
+}
+
+static void xwayland_surface_set_hints(struct wl_listener *listener,
+                                       void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, set_hints);
+  (void)data;
+
+  struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+
+  if (xs->hints) {
+    // Handle urgency hint
+    if (xs->hints->flags & XCB_ICCCM_WM_HINT_X_URGENCY) {
+      printf("XWayland surface urgent: %s\n",
+             xs->title ? xs->title : "untitled");
+    }
+
+    // Handle input hint (whether app accepts focus)
+    if (xs->hints->flags & XCB_ICCCM_WM_HINT_INPUT) {
+      printf("XWayland surface input hint: %d\n", xs->hints->input);
+    }
+  }
+}
+
+// Window type detection helper
+static void update_window_type(struct xwayland_surface *xsurface) {
+  struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+
+  xsurface->is_popup = false;
+  xsurface->is_dialog = false;
+  xsurface->is_splash = false;
+
+  if (!xs->window_type) {
+    return;
+  }
+
+  // Check window types (NET_WM_WINDOW_TYPE)
+  for (size_t i = 0; i < xs->window_type_len; i++) {
+    xcb_atom_t type = xs->window_type[i];
+
+    // Common window type atoms
+    // Note: These are typically compared against cached atoms from xwayland
+    // For now, we use heuristics based on other properties
+  }
+
+  // Use heuristics for window type detection
+  if (xs->parent) {
+    xsurface->is_dialog = true;
+  }
+
+  // Modal windows are dialogs
+  if (xs->modal) {
+    xsurface->is_dialog = true;
+  }
+}
+
+static void xwayland_surface_set_window_type(struct wl_listener *listener,
+                                              void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, set_window_type);
+  (void)data;
+
+  update_window_type(xsurface);
+  printf("XWayland window type updated: popup=%d dialog=%d splash=%d\n",
+         xsurface->is_popup, xsurface->is_dialog, xsurface->is_splash);
+}
+
+static void xwayland_surface_set_override_redirect(struct wl_listener *listener,
+                                                    void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, set_override_redirect);
+  (void)data;
+
+  bool was_or = xsurface->override_redirect;
+  xsurface->override_redirect = xsurface->xwayland_surface->override_redirect;
+
+  if (was_or != xsurface->override_redirect) {
+    printf("XWayland override-redirect changed: %d -> %d\n",
+           was_or, xsurface->override_redirect);
+
+    // Reposition override-redirect windows (menus, tooltips) to overlay layer
+    if (xsurface->scene_tree && xsurface->override_redirect) {
+      wlr_scene_node_reparent(&xsurface->scene_tree->node,
+                               xsurface->server->layer_overlay);
+    } else if (xsurface->scene_tree) {
+      wlr_scene_node_reparent(&xsurface->scene_tree->node,
+                               xsurface->server->layer_windows);
+    }
+  }
+}
+
+static void xwayland_surface_request_move(struct wl_listener *listener,
+                                           void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, request_move);
+  (void)data;
+
+  // Don't allow OR windows to initiate move
+  if (xsurface->override_redirect) {
+    return;
+  }
+
+  // Start interactive move
+  printf("XWayland surface requested move: %s\n",
+         xsurface->xwayland_surface->title ?
+         xsurface->xwayland_surface->title : "untitled");
+
+  // Set cursor mode to move and track this surface
+  if (xsurface->server->seat) {
+    cursor_state.mode = CURSOR_MOVE;
+    cursor_state.toplevel = NULL;  // We need a different tracking for xwayland
+    cursor_state.grab_x = xsurface->server->cursor->x -
+                          xsurface->xwayland_surface->x;
+    cursor_state.grab_y = xsurface->server->cursor->y -
+                          xsurface->xwayland_surface->y;
+  }
+}
+
+static void xwayland_surface_request_resize(struct wl_listener *listener,
+                                             void *data) {
+  struct xwayland_surface *xsurface =
+      wl_container_of(listener, xsurface, request_resize);
+  struct wlr_xwayland_resize_event *event = data;
+
+  // Don't allow OR windows to initiate resize
+  if (xsurface->override_redirect) {
+    return;
+  }
+
+  printf("XWayland surface requested resize: %s (edges: %d)\n",
+         xsurface->xwayland_surface->title ?
+         xsurface->xwayland_surface->title : "untitled",
+         event->edges);
+
+  // Set cursor mode to resize
+  cursor_state.mode = CURSOR_RESIZE;
+  cursor_state.toplevel = NULL;
+  cursor_state.resize_edges = event->edges;
+  cursor_state.grab_x = xsurface->server->cursor->x;
+  cursor_state.grab_y = xsurface->server->cursor->y;
+  cursor_state.grab_box.x = xsurface->xwayland_surface->x;
+  cursor_state.grab_box.y = xsurface->xwayland_surface->y;
+  cursor_state.grab_box.width = xsurface->xwayland_surface->width;
+  cursor_state.grab_box.height = xsurface->xwayland_surface->height;
+}
+
 static void server_new_xwayland_surface(struct wl_listener *listener,
                                         void *data) {
   struct server *server =
@@ -262,6 +499,7 @@ static void server_new_xwayland_surface(struct wl_listener *listener,
 
   xsurface->server = server;
   xsurface->xwayland_surface = xwayland_surface;
+  xsurface->override_redirect = xwayland_surface->override_redirect;
 
   // Use associate/dissociate events which exist in wlroots 0.18
   xsurface->map.notify = xwayland_surface_associate;
@@ -289,15 +527,63 @@ static void server_new_xwayland_surface(struct wl_listener *listener,
   wl_signal_add(&xwayland_surface->events.request_activate,
                 &xsurface->request_activate);
 
+  // New: request_move and request_resize
+  xsurface->request_move.notify = xwayland_surface_request_move;
+  wl_signal_add(&xwayland_surface->events.request_move,
+                &xsurface->request_move);
+
+  xsurface->request_resize.notify = xwayland_surface_request_resize;
+  wl_signal_add(&xwayland_surface->events.request_resize,
+                &xsurface->request_resize);
+
   xsurface->set_title.notify = xwayland_surface_set_title;
   wl_signal_add(&xwayland_surface->events.set_title, &xsurface->set_title);
 
   xsurface->set_class.notify = xwayland_surface_set_class;
   wl_signal_add(&xwayland_surface->events.set_class, &xsurface->set_class);
 
+  // New: parent, hints, window type, and override redirect events
+  xsurface->set_parent.notify = xwayland_surface_set_parent;
+  wl_signal_add(&xwayland_surface->events.set_parent, &xsurface->set_parent);
+
+  xsurface->set_hints.notify = xwayland_surface_set_hints;
+  wl_signal_add(&xwayland_surface->events.set_hints, &xsurface->set_hints);
+
+  xsurface->set_window_type.notify = xwayland_surface_set_window_type;
+  wl_signal_add(&xwayland_surface->events.set_window_type,
+                &xsurface->set_window_type);
+
+  xsurface->set_override_redirect.notify = xwayland_surface_set_override_redirect;
+  wl_signal_add(&xwayland_surface->events.set_override_redirect,
+                &xsurface->set_override_redirect);
+
   wl_list_insert(&server->xwayland_surfaces, &xsurface->link);
-  
-  printf("New XWayland surface created: %p\n", (void*)xwayland_surface);
+
+  // Initial window type detection
+  update_window_type(xsurface);
+
+  printf("New XWayland surface created: %p (OR=%d)\n",
+         (void*)xwayland_surface, xsurface->override_redirect);
+}
+
+// XWayland ready callback - called when Xwayland server is ready
+static void xwayland_ready(struct wl_listener *listener, void *data) {
+  struct server *server =
+      wl_container_of(listener, server, xwayland_ready);
+  (void)data;
+
+  // Set cursor theme for XWayland
+  if (server->cursor_mgr && server->xwayland) {
+    wlr_xwayland_set_cursor(server->xwayland,
+        server->cursor_mgr->theme->cursors[0]->images[0]->buffer,
+        server->cursor_mgr->theme->cursors[0]->images[0]->width * 4,
+        server->cursor_mgr->theme->cursors[0]->images[0]->width,
+        server->cursor_mgr->theme->cursors[0]->images[0]->height,
+        server->cursor_mgr->theme->cursors[0]->images[0]->hotspot_x,
+        server->cursor_mgr->theme->cursors[0]->images[0]->hotspot_y);
+  }
+
+  printf("XWayland server is ready\n");
 }
 
 int xwayland_init(struct server *server) {
@@ -315,21 +601,204 @@ int xwayland_init(struct server *server) {
   wl_signal_add(&server->xwayland->events.new_surface,
                 &server->new_xwayland_surface);
 
+  // Listen for XWayland ready event
+  server->xwayland_ready.notify = xwayland_ready;
+  wl_signal_add(&server->xwayland->events.ready, &server->xwayland_ready);
+
   // IMPORTANT: Assign the seat to XWayland for selection/clipboard support
   wlr_xwayland_set_seat(server->xwayland, server->seat);
 
+  // Set environment variables
   setenv("DISPLAY", server->xwayland->display_name, true);
 
-  printf("XWayland initialized on DISPLAY=%s\n",
-         server->xwayland->display_name);
+  // Enable XIM for input method support in X11 applications
+  // This allows apps like Firefox, Chrome, etc. to use IME
+  setenv("XMODIFIERS", "@im=ibus", false);  // Don't override if already set
+  setenv("GTK_IM_MODULE", "ibus", false);
+  setenv("QT_IM_MODULE", "ibus", false);
+
+  // HiDPI scaling: Set global scale for XWayland
+  // Can be configured per-output later
+  struct output *output;
+  float max_scale = 1.0f;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->wlr_output->scale > max_scale) {
+      max_scale = output->wlr_output->scale;
+    }
+  }
+
+  // Set GDK_SCALE for GTK apps on XWayland
+  if (max_scale > 1.0f) {
+    char scale_str[16];
+    snprintf(scale_str, sizeof(scale_str), "%d", (int)max_scale);
+    setenv("GDK_SCALE", scale_str, true);
+    setenv("GDK_DPI_SCALE", "1", true);  // Prevent double scaling
+  }
+
+  printf("XWayland initialized on DISPLAY=%s (scale=%.1f)\n",
+         server->xwayland->display_name, max_scale);
 
   return 0;
 }
 
 void xwayland_finish(struct server *server) {
   if (server->xwayland) {
+    wl_list_remove(&server->new_xwayland_surface.link);
+    wl_list_remove(&server->xwayland_ready.link);
     wlr_xwayland_destroy(server->xwayland);
     server->xwayland = NULL;
+  }
+}
+
+/*
+ * XWayland Stacking Management
+ * Helper functions for managing X11 window stacking order
+ */
+
+// Raise an XWayland surface above its siblings
+void xwayland_surface_raise(struct xwayland_surface *xsurface) {
+  if (!xsurface || !xsurface->scene_tree) {
+    return;
+  }
+
+  wlr_scene_node_raise_to_top(&xsurface->scene_tree->node);
+
+  // Also raise any child surfaces (transients, dialogs)
+  struct xwayland_surface *child;
+  wl_list_for_each(child, &xsurface->server->xwayland_surfaces, link) {
+    if (child->parent == xsurface && child->scene_tree) {
+      wlr_scene_node_raise_to_top(&child->scene_tree->node);
+    }
+  }
+}
+
+// Lower an XWayland surface below its siblings
+void xwayland_surface_lower(struct xwayland_surface *xsurface) {
+  if (!xsurface || !xsurface->scene_tree) {
+    return;
+  }
+
+  // First lower children
+  struct xwayland_surface *child;
+  wl_list_for_each(child, &xsurface->server->xwayland_surfaces, link) {
+    if (child->parent == xsurface && child->scene_tree) {
+      wlr_scene_node_lower_to_bottom(&child->scene_tree->node);
+    }
+  }
+
+  wlr_scene_node_lower_to_bottom(&xsurface->scene_tree->node);
+}
+
+// Restack a surface relative to another
+void xwayland_surface_restack(struct xwayland_surface *xsurface,
+                               struct xwayland_surface *sibling,
+                               bool above) {
+  if (!xsurface || !xsurface->scene_tree || !sibling || !sibling->scene_tree) {
+    return;
+  }
+
+  if (above) {
+    wlr_scene_node_place_above(&xsurface->scene_tree->node,
+                                &sibling->scene_tree->node);
+  } else {
+    wlr_scene_node_place_below(&xsurface->scene_tree->node,
+                                &sibling->scene_tree->node);
+  }
+}
+
+// Find XWayland surface at coordinates
+struct xwayland_surface *xwayland_surface_at(struct server *server,
+                                              double lx, double ly,
+                                              struct wlr_surface **surface,
+                                              double *sx, double *sy) {
+  struct xwayland_surface *xsurface;
+  wl_list_for_each(xsurface, &server->xwayland_surfaces, link) {
+    if (!xsurface->scene_tree) {
+      continue;
+    }
+
+    struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+    if (!xs->surface || !xs->surface->mapped) {
+      continue;
+    }
+
+    // Check bounds
+    if (lx >= xs->x && lx < xs->x + xs->width &&
+        ly >= xs->y && ly < xs->y + xs->height) {
+      *sx = lx - xs->x;
+      *sy = ly - xs->y;
+      *surface = xs->surface;
+      return xsurface;
+    }
+  }
+
+  return NULL;
+}
+
+// Focus an XWayland surface
+void xwayland_surface_focus(struct xwayland_surface *xsurface) {
+  if (!xsurface || !xsurface->xwayland_surface->surface) {
+    return;
+  }
+
+  struct server *server = xsurface->server;
+  struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+
+  // Don't focus override-redirect windows
+  if (xsurface->override_redirect) {
+    return;
+  }
+
+  // Activate the surface
+  wlr_xwayland_surface_activate(xs, true);
+
+  // Send keyboard enter
+  if (server->seat && xs->surface->mapped) {
+    struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(server->seat);
+    if (keyboard) {
+      wlr_seat_keyboard_notify_enter(server->seat, xs->surface,
+                                      keyboard->keycodes,
+                                      keyboard->num_keycodes,
+                                      &keyboard->modifiers);
+    }
+  }
+
+  // Raise to top with transients
+  xwayland_surface_raise(xsurface);
+}
+
+// Send configure event respecting constraints
+void xwayland_surface_configure(struct xwayland_surface *xsurface,
+                                 int x, int y, int width, int height) {
+  if (!xsurface) {
+    return;
+  }
+
+  struct wlr_xwayland_surface *xs = xsurface->xwayland_surface;
+
+  // Respect size hints if available
+  if (xs->size_hints) {
+    // Minimum size
+    if (xs->size_hints->min_width > 0 && width < xs->size_hints->min_width) {
+      width = xs->size_hints->min_width;
+    }
+    if (xs->size_hints->min_height > 0 && height < xs->size_hints->min_height) {
+      height = xs->size_hints->min_height;
+    }
+
+    // Maximum size
+    if (xs->size_hints->max_width > 0 && width > xs->size_hints->max_width) {
+      width = xs->size_hints->max_width;
+    }
+    if (xs->size_hints->max_height > 0 && height > xs->size_hints->max_height) {
+      height = xs->size_hints->max_height;
+    }
+  }
+
+  wlr_xwayland_surface_configure(xs, x, y, width, height);
+
+  if (xsurface->scene_tree) {
+    wlr_scene_node_set_position(&xsurface->scene_tree->node, x, y);
   }
 }
 

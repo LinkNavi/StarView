@@ -11,6 +11,8 @@ cairo = dependency('cairo')
 pangocairo = dependency('pangocairo')
 libdrm = dependency('libdrm')
 xwayland = dependency('xwayland')
+xcb = dependency('xcb')
+xcb_icccm = dependency('xcb-icccm')
 
 wl_protocol_dir = wayland_protocols.get_variable('pkgdatadir')
 wayland_scanner = find_program('wayland-scanner')
@@ -51,6 +53,6 @@ src = [
 ]
 
 executable('compositor', src, protocol_headers,
-  dependencies: [wlroots, wayland_server, xkbcommon, math, json, xwayland, cairo, pangocairo, libdrm],
+  dependencies: [wlroots, wayland_server, xkbcommon, math, json, xwayland, xcb, xcb_icccm, cairo, pangocairo, libdrm],
   include_directories: include_directories('.'),
   c_args: ['-Wno-incompatible-pointer-types'])
