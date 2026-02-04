@@ -1,0 +1,30 @@
+--- a/src/core.c
++++ b/src/core.c
+@@ -1730,12 +1730,22 @@ static void text_input_destroy(struct wl_listener *listener, void *data) {
+     if (ti->server->active_text_input == ti->text_input) {
+         ti->server->active_text_input = NULL;
+     }
+     
+-    wl_list_remove(&ti->enable.link);
+-    wl_list_remove(&ti->disable.link);
+-    wl_list_remove(&ti->commit.link);
+-    wl_list_remove(&ti->destroy.link);
+-    wl_list_remove(&ti->link);
++    // Safely remove listeners - check if they're in a list first
++    if (!wl_list_empty(&ti->enable.link)) {
++        wl_list_remove(&ti->enable.link);
++    }
++    if (!wl_list_empty(&ti->disable.link)) {
++        wl_list_remove(&ti->disable.link);
++    }
++    if (!wl_list_empty(&ti->commit.link)) {
++        wl_list_remove(&ti->commit.link);
++    }
++    if (!wl_list_empty(&ti->destroy.link)) {
++        wl_list_remove(&ti->destroy.link);
++    }
++    if (!wl_list_empty(&ti->link)) {
++        wl_list_remove(&ti->link);
++    }
+     free(ti);
+ }

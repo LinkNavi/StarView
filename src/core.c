@@ -1729,8 +1729,13 @@ static void text_input_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&ti->enable.link);
     wl_list_remove(&ti->disable.link);
     wl_list_remove(&ti->commit.link);
-    wl_list_remove(&ti->destroy.link);
-    wl_list_remove(&ti->link);
+    // Don't remove destroy.link - we're executing in it right now
+    
+    // Only remove from list if it was added (it's initialized)
+    if (!wl_list_empty(&ti->link)) {
+        wl_list_remove(&ti->link);
+    }
+    
     free(ti);
 }
 
@@ -1757,6 +1762,11 @@ static void handle_new_text_input(struct wl_listener *listener, void *data) {
     
     ti->destroy.notify = text_input_destroy;
     wl_signal_add(&wlr_text_input->events.destroy, &ti->destroy);
+    
+    // IMPORTANT: Initialize the link so it's safe to remove later
+    wl_list_init(&ti->link);
+    // Note: We don't actually need to track these in a list since
+    // they're cleaned up via the destroy signal
 }
 
 static void input_method_commit(struct wl_listener *listener, void *data) {
