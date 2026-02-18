@@ -63,8 +63,8 @@ const char *window_get_app_id(struct window *win) {
 
 struct wlr_scene_node *window_get_scene_node(struct window *win) {
     if (!win) return NULL;
-    if (win->decor.tree)
-        return &win->decor.tree->node;
+  if (win->decor && win->decor->tree)
+    return &win->decor->tree->node;
     if (win->scene_tree)
         return &win->scene_tree->node;
     return NULL;

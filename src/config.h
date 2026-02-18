@@ -182,8 +182,18 @@ struct decor_config {
     struct shadow_config shadow_inactive;
     
     bool buttons_left;
+    
+    // NEW: Custom image/icon support
+    char bg_image_path[512];
+    bool bg_image_tile;
+    
+    char icon_close_path[512];
+    char icon_maximize_path[512];
+    char icon_minimize_path[512];
+    
+    int font_weight;
+    bool font_italic;
 };
-
 /*
  * GESTURE TYPES
  */

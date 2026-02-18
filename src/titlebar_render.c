@@ -20,6 +20,7 @@
 #ifdef USE_TOML
 #include "toml.h"
 #endif
+
 /* Global theme */
 static struct titlebar_theme *global_theme = NULL;
 
@@ -87,6 +88,80 @@ static struct cairo_buffer *cairo_buffer_create(int width, int height) {
 
   wlr_buffer_init(&buffer->base, &cairo_buffer_impl, width, height);
   return buffer;
+}
+
+/* ============================================================================
+ * Image loading helpers
+ * ============================================================================
+ */
+
+static cairo_surface_t *load_png_image(const char *path) {
+    if (!path || !path[0]) return NULL;
+    
+    // Expand ~ to home directory
+    char expanded_path[1024];
+    if (path[0] == '~') {
+        const char *home = getenv("HOME");
+        if (home) {
+            snprintf(expanded_path, sizeof(expanded_path), "%s%s", home, path + 1);
+            path = expanded_path;
+        }
+    }
+    
+    cairo_surface_t *img = cairo_image_surface_create_from_png(path);
+    if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "Failed to load image: %s - %s\n", path, 
+                cairo_status_to_string(cairo_surface_status(img)));
+        cairo_surface_destroy(img);
+        return NULL;
+    }
+    return img;
+}
+
+static void draw_image_background(cairo_t *cr, const char *path, bool tile,
+                                  int width, int height) {
+    cairo_surface_t *img = load_png_image(path);
+    if (!img) return;
+    
+    int img_w = cairo_image_surface_get_width(img);
+    int img_h = cairo_image_surface_get_height(img);
+    
+    if (tile) {
+        // Tile the image
+        cairo_pattern_t *pattern = cairo_pattern_create_for_surface(img);
+        cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT);
+        cairo_set_source(cr, pattern);
+        cairo_rectangle(cr, 0, 0, width, height);
+        cairo_fill(cr);
+        cairo_pattern_destroy(pattern);
+    } else {
+        // Stretch to fit
+        cairo_save(cr);
+        cairo_scale(cr, (double)width / img_w, (double)height / img_h);
+        cairo_set_source_surface(cr, img, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
+    
+    cairo_surface_destroy(img);
+}
+
+static void draw_custom_icon(cairo_t *cr, const char *path, 
+                            double x, double y, double size) {
+    cairo_surface_t *img = load_png_image(path);
+    if (!img) return;
+    
+    int img_w = cairo_image_surface_get_width(img);
+    int img_h = cairo_image_surface_get_height(img);
+    
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, size / img_w, size / img_h);
+    cairo_set_source_surface(cr, img, 0, 0);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    
+    cairo_surface_destroy(img);
 }
 
 /* ============================================================================
@@ -342,18 +417,33 @@ static void render_button(cairo_t *cr, double x, double y,
     cairo_stroke(cr);
   }
 
-  /* Draw icon */
+  /* Draw icon - check for custom icons first */
   double icon_size = fmin(w, h) * style->icon_scale;
 
   switch (type) {
   case BTN_TYPE_CLOSE:
-    draw_close_icon(cr, cx, cy, icon_size, style->icon_color);
+    if (config.decor.icon_close_path[0]) {
+        draw_custom_icon(cr, config.decor.icon_close_path, 
+                        cx - icon_size/2, cy - icon_size/2, icon_size);
+    } else {
+        draw_close_icon(cr, cx, cy, icon_size, style->icon_color);
+    }
     break;
   case BTN_TYPE_MAXIMIZE:
-    draw_maximize_icon(cr, cx, cy, icon_size, style->icon_color);
+    if (config.decor.icon_maximize_path[0]) {
+        draw_custom_icon(cr, config.decor.icon_maximize_path,
+                        cx - icon_size/2, cy - icon_size/2, icon_size);
+    } else {
+        draw_maximize_icon(cr, cx, cy, icon_size, style->icon_color);
+    }
     break;
   case BTN_TYPE_MINIMIZE:
-    draw_minimize_icon(cr, cx, cy, icon_size, style->icon_color);
+    if (config.decor.icon_minimize_path[0]) {
+        draw_custom_icon(cr, config.decor.icon_minimize_path,
+                        cx - icon_size/2, cy - icon_size/2, icon_size);
+    } else {
+        draw_minimize_icon(cr, cx, cy, icon_size, style->icon_color);
+    }
     break;
   default:
     break;
@@ -752,6 +842,7 @@ void titlebar_theme_load_preset(struct titlebar_theme *theme,
 
   theme->inactive_opacity = 0.85f;
 }
+
 /* ============================================================================
  * Titlebar rendering
  * ============================================================================
@@ -783,8 +874,11 @@ static void render_titlebar_background(struct rendered_titlebar *tb,
   /* Draw shadow if enabled */
   draw_shadow(cr, 0, 0, w, h, theme->corner_radius_top, &theme->shadow);
 
-  /* Draw background */
-  if (theme->bg_gradient.direction != GRADIENT_NONE && active) {
+  /* Draw background - check for custom image first */
+  if (config.decor.bg_image_path[0]) {
+    draw_image_background(cr, config.decor.bg_image_path, 
+                         config.decor.bg_image_tile, w, h);
+  } else if (theme->bg_gradient.direction != GRADIENT_NONE && active) {
     apply_gradient(cr, &theme->bg_gradient, 0, 0, w, h);
   } else {
     cairo_set_color(cr, active ? theme->bg_color : theme->bg_color_inactive);
@@ -811,7 +905,7 @@ static void render_titlebar_background(struct rendered_titlebar *tb,
   wlr_buffer_drop(&buffer->base);
 }
 
- struct wlr_scene_buffer *create_shadow_buffer(
+struct wlr_scene_buffer *create_shadow_buffer(
     struct wlr_scene_tree *parent,
     int window_width,
     int window_height,
@@ -834,7 +928,7 @@ static void render_titlebar_background(struct rendered_titlebar *tb,
     struct shadow_style style = {
         .enabled = true,
         .blur = shadow->blur_radius,
-        .offset_x = 0,  // Already accounted for in positioning
+        .offset_x = 0,
         .offset_y = 0,
         .color = color_from_hex(shadow->color)
     };
@@ -851,7 +945,6 @@ static void render_titlebar_background(struct rendered_titlebar *tb,
     struct wlr_scene_buffer *scene_buf = create_scene_buffer(parent, buffer);
     wlr_buffer_drop(&buffer->base);
     
-    // Position buffer so shadow aligns with window at (0,0)
     if (scene_buf) {
         wlr_scene_node_set_position(&scene_buf->node, 
                                     -shadow->blur_radius - shadow->offset_x,
@@ -896,15 +989,19 @@ static void render_title_text(struct rendered_titlebar *tb,
   cairo_paint(cr);
   cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
-  /* Setup Pango */
+  /* Setup Pango - with custom font weight and style */
   PangoLayout *layout = pango_cairo_create_layout(cr);
 
   char font_desc[128];
-  snprintf(font_desc, sizeof(font_desc), "%s %s %d", style->font_family,
-           style->font_weight >= 700   ? "Bold"
-           : style->font_weight >= 500 ? "Medium"
-                                       : "",
-           style->font_size);
+  const char *weight_str = "Normal";
+  if (config.decor.font_weight >= 700) weight_str = "Bold";
+  else if (config.decor.font_weight >= 600) weight_str = "Semibold";
+  else if (config.decor.font_weight >= 500) weight_str = "Medium";
+
+  const char *style_str = config.decor.font_italic ? "Italic" : "";
+
+  snprintf(font_desc, sizeof(font_desc), "%s %s %s %d", 
+           style->font_family, weight_str, style_str, style->font_size);
 
   PangoFontDescription *font = pango_font_description_from_string(font_desc);
   pango_layout_set_font_description(layout, font);
@@ -977,7 +1074,6 @@ static void render_buttons(struct rendered_titlebar *tb,
   enum button_state states[3];
   struct wlr_scene_buffer **scene_btns[3];
 
-  // Define the struct type for boxes
   struct box_pointers {
     int *x;
     int *y;
@@ -1076,6 +1172,7 @@ static void render_buttons(struct rendered_titlebar *tb,
     wlr_buffer_drop(&buffer->base);
   }
 }
+
 struct rendered_titlebar *titlebar_render_create(struct wlr_scene_tree *parent,
                                                  struct titlebar_theme *theme) {
   struct rendered_titlebar *tb = calloc(1, sizeof(*tb));
@@ -1088,7 +1185,7 @@ struct rendered_titlebar *titlebar_render_create(struct wlr_scene_tree *parent,
     return NULL;
   }
 
-  tb->width = 200; /* Default, will be updated */
+  tb->width = 200;
   tb->height = theme->height;
   tb->active = true;
 
@@ -1186,14 +1283,13 @@ enum button_type titlebar_render_hit_test(struct rendered_titlebar *tb, int x,
     return BTN_TYPE_MINIMIZE;
   }
 
-  return BTN_TYPE_CUSTOM; /* None matched */
+  return BTN_TYPE_CUSTOM;
 }
 
 bool titlebar_render_in_drag_area(struct rendered_titlebar *tb, int x, int y) {
   if (!tb)
     return false;
 
-  /* In titlebar but not on a button */
   if (y >= 0 && y < tb->height && x >= 0 && x < tb->width) {
     return titlebar_render_hit_test(tb, x, y) == BTN_TYPE_CUSTOM;
   }
@@ -1208,43 +1304,24 @@ void titlebar_set_global_theme(struct titlebar_theme *theme) {
 struct titlebar_theme *titlebar_get_global_theme(void) { return global_theme; }
 
 /* ============================================================================
- * Theme file loading (TOML format)
+ * Theme file loading
  * ============================================================================
  */
-
-static struct color parse_color_string(const char *str) {
-  if (!str || str[0] != '#') {
-    return color_from_hex(0x000000ff);
-  }
-
-  uint32_t hex = 0;
-  sscanf(str + 1, "%x", &hex);
-
-  /* If 6 digits (RGB), add full alpha */
-  if (strlen(str) == 7) {
-    hex = (hex << 8) | 0xFF;
-  }
-
-  return color_from_hex(hex);
-}
 
 int titlebar_theme_load_from_config(struct titlebar_theme *theme,
                                     struct decor_config *config) {
   if (!theme || !config)
     return -1;
 
-  /* Basic dimensions */
   theme->height = config->height > 0 ? config->height : 34;
   theme->padding_left = 12;
   theme->padding_right = 12;
   theme->corner_radius_top =
       config->corner_radius >= 0 ? config->corner_radius : 10;
 
-  /* Colors - convert from uint32_t hex to struct color */
   theme->bg_color = color_from_hex(config->bg_color);
   theme->bg_color_inactive = color_from_hex(config->bg_color_inactive);
 
-  /* Title settings */
   theme->title.font_size = config->font_size > 0 ? config->font_size : 12;
   strncpy(theme->title.font_family, config->font,
           sizeof(theme->title.font_family) - 1);
@@ -1253,13 +1330,11 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->title_inactive.color = color_from_hex(config->title_color_inactive);
   theme->title_align = ALIGN_CENTER;
 
-  /* Button layout */
   theme->buttons_left = config->buttons_left;
   theme->button_spacing =
       config->button_spacing > 0 ? config->button_spacing : 8;
   theme->button_margin = 10;
 
-  /* Close button */
   theme->btn_close.type = BTN_TYPE_CLOSE;
   theme->btn_close.shape = SHAPE_CIRCLE;
   theme->btn_close.width = config->button_size > 0 ? config->button_size : 16;
@@ -1273,7 +1348,6 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->btn_close.hover.icon_color = color_from_hex(0xFFFFFFFF);
   theme->btn_close.hover.icon_scale = 0.65f;
 
-  /* Maximize button */
   theme->btn_maximize.type = BTN_TYPE_MAXIMIZE;
   theme->btn_maximize.shape = SHAPE_CIRCLE;
   theme->btn_maximize.width =
@@ -1289,7 +1363,6 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->btn_maximize.hover.icon_color = color_from_hex(0xFFFFFFFF);
   theme->btn_maximize.hover.icon_scale = 0.6f;
 
-  /* Minimize button */
   theme->btn_minimize.type = BTN_TYPE_MINIMIZE;
   theme->btn_minimize.shape = SHAPE_CIRCLE;
   theme->btn_minimize.width =
@@ -1307,144 +1380,10 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
 
   theme->inactive_opacity = 0.85f;
 
-  printf("✓ Loaded titlebar theme from config\n");
-  printf("  Height: %d, Buttons: %.0f×%.0f, Corner radius: %.0f\n",
-         theme->height, theme->btn_close.width, theme->btn_close.height,
-         theme->corner_radius_top);
-
   return 0;
 }
-#ifdef USE_TOML
-/* Load theme directly from TOML file */
-int titlebar_theme_load_file(struct titlebar_theme *theme, const char *path) {
-  if (!theme || !path)
-    return -1;
-
-  FILE *fp = fopen(path, "r");
-  if (!fp) {
-    fprintf(stderr, "Failed to open theme file: %s\n", strerror(errno));
-    return -1;
-  }
-
-  char errbuf[200];
-  toml_table_t *conf = toml_parse_file(fp, errbuf, sizeof(errbuf));
-  fclose(fp);
-
-  if (!conf) {
-    fprintf(stderr, "Failed to parse theme file: %s\n", errbuf);
-    return -1;
-  }
-
-  /* Parse basic settings */
-  toml_datum_t val;
-
-  val = toml_int_in(conf, "height");
-  if (val.ok)
-    theme->height = val.u.i;
-
-  val = toml_int_in(conf, "corner_radius");
-  if (val.ok)
-    theme->corner_radius_top = val.u.i;
-
-  val = toml_string_in(conf, "bg_color");
-  if (val.ok) {
-    theme->bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "bg_color_inactive");
-  if (val.ok) {
-    theme->bg_color_inactive = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_int_in(conf, "button_size");
-  if (val.ok) {
-    theme->btn_close.width = val.u.i;
-    theme->btn_close.height = val.u.i;
-    theme->btn_maximize.width = val.u.i;
-    theme->btn_maximize.height = val.u.i;
-    theme->btn_minimize.width = val.u.i;
-    theme->btn_minimize.height = val.u.i;
-  }
-
-  val = toml_int_in(conf, "button_spacing");
-  if (val.ok)
-    theme->button_spacing = val.u.i;
-
-  val = toml_bool_in(conf, "buttons_left");
-  if (val.ok)
-    theme->buttons_left = val.u.b;
-
-  val = toml_string_in(conf, "font");
-  if (val.ok) {
-    strncpy(theme->title.font_family, val.u.s,
-            sizeof(theme->title.font_family) - 1);
-    free(val.u.s);
-  }
-
-  val = toml_int_in(conf, "font_size");
-  if (val.ok)
-    theme->title.font_size = val.u.i;
-
-  val = toml_string_in(conf, "title_color");
-  if (val.ok) {
-    theme->title.color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "title_color_inactive");
-  if (val.ok) {
-    theme->title_inactive.color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  /* Button colors */
-  val = toml_string_in(conf, "close_color");
-  if (val.ok) {
-    theme->btn_close.normal.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "close_hover");
-  if (val.ok) {
-    theme->btn_close.hover.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "maximize_color");
-  if (val.ok) {
-    theme->btn_maximize.normal.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "maximize_hover");
-  if (val.ok) {
-    theme->btn_maximize.hover.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "minimize_color");
-  if (val.ok) {
-    theme->btn_minimize.normal.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  val = toml_string_in(conf, "minimize_hover");
-  if (val.ok) {
-    theme->btn_minimize.hover.bg_color = parse_color_string(val.u.s);
-    free(val.u.s);
-  }
-
-  toml_free(conf);
-
-  printf("Loaded titlebar theme from file: %s\n", path);
-  return 0;
-}
-#endif
 
 int titlebar_theme_save_file(struct titlebar_theme *theme, const char *path) {
-  /* TODO: Implement theme saving */
   (void)theme;
   (void)path;
   return -1;

@@ -3,12 +3,16 @@
 
 CONFIG_DIR="$HOME/.config/starview"
 KEYBINDS_DIR="$CONFIG_DIR/keybinds"
+ICONS_DIR="$CONFIG_DIR/icons"
+IMAGES_DIR="$CONFIG_DIR/images"
 
 echo "Setting up StarView configuration..."
 
 # Create directory structure
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$KEYBINDS_DIR"
+mkdir -p "$ICONS_DIR"
+mkdir -p "$IMAGES_DIR"
 
 # Create main configuration file
 cat > "$CONFIG_DIR/starview.toml" << 'EOF'
@@ -26,6 +30,7 @@ include = [
     "rules.toml",
 ]
 EOF
+
 cat > "$CONFIG_DIR/background.toml" << 'EOF'
 [background]
 enabled = true
@@ -33,6 +38,7 @@ color = "#000000"
 image = "/home/link/Pictures/wallpapers/Arch-chan_to.png"
 mode = "fill"
 EOF
+
 cat > "$CONFIG_DIR/gestures.toml" << 'EOF'
 # Gesture Configuration Example
 
@@ -118,21 +124,52 @@ resize_step = 50
 move_step = 50
 EOF
 
-# Create decoration.toml
+# Create decoration.toml with FULL customization support
 cat > "$CONFIG_DIR/decoration.toml" << 'EOF'
 [decoration]
 enabled = true
-height = 30
-button_size = 24
+height = 34
+button_size = 16
 button_spacing = 8
-corner_radius = 8
+corner_radius = 10
 
-# Catppuccin Mocha theme
+# ============================================================================
+# BACKGROUND CUSTOMIZATION
+# ============================================================================
+# Custom titlebar background image (optional)
+# If set, this will be used instead of solid colors
+# Leave empty or comment out to use colors below
+# bg_image = "~/.config/starview/images/titlebar-gradient.png"
+# bg_image_tile = true  # true = tile, false = stretch
+
+# Fallback solid colors (used if no bg_image)
 bg_color = "#1e1e2e"
 bg_color_inactive = "#313244"
+
+# ============================================================================
+# TEXT/FONT CUSTOMIZATION
+# ============================================================================
+font = "Inter"           # Font family
+font_size = 12           # Font size in pixels
+font_weight = 600        # 100-900 (400=normal, 700=bold)
+font_italic = false      # Enable italic style
+
 title_color = "#cdd6f4"
 title_color_inactive = "#6c7086"
 
+# ============================================================================
+# BUTTON ICON CUSTOMIZATION
+# ============================================================================
+# Custom PNG icons for buttons (optional)
+# If set, these will be used instead of drawn icons
+# Leave empty or comment out to use default drawn icons
+
+# Example with custom icons:
+# icon_close = "~/.config/starview/icons/close.png"
+# icon_maximize = "~/.config/starview/icons/maximize.png"
+# icon_minimize = "~/.config/starview/icons/minimize.png"
+
+# Fallback button colors (used if no custom icons)
 close_color = "#f38ba8"
 close_hover = "#eba0ac"
 maximize_color = "#a6e3a1"
@@ -140,27 +177,118 @@ maximize_hover = "#94e2d5"
 minimize_color = "#f9e2af"
 minimize_hover = "#f5c2e7"
 
-font = "sans"
-font_size = 12
-buttons_left = false
+buttons_left = false     # false = right side (Windows), true = left side (macOS)
 
+# ============================================================================
+# SHADOWS
+# ============================================================================
 [decoration.shadow]
 enabled = true
-offset_x = 0          # Center horizontally
-offset_y = 8          # Drop down 8px
-blur_radius = 20      # Soft blur
-opacity = 0.5         # 50% transparent
-color = "#000000"     # Black shadow
+offset_x = 0          # Horizontal offset
+offset_y = 8          # Vertical offset (drop shadow)
+blur_radius = 20      # Blur amount
+opacity = 0.5         # 0.0 - 1.0
+color = "#000000"     # Shadow color
 
 [decoration.shadow_inactive]
 enabled = true
 offset_x = 0
-offset_y = 4          # Lighter drop for inactive
+offset_y = 4
 blur_radius = 15
-opacity = 0.3         # More transparent
+opacity = 0.3
 color = "#000000"
+EOF
 
+# Create a preset configs directory
+mkdir -p "$CONFIG_DIR/presets"
 
+# macOS-style preset
+cat > "$CONFIG_DIR/presets/macos.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 38
+button_size = 13
+button_spacing = 8
+corner_radius = 12
+
+bg_color = "#ebebed"
+bg_color_inactive = "#f6f6f7"
+
+font = "SF Pro Display"
+font_size = 13
+font_weight = 600
+font_italic = false
+
+title_color = "#000000"
+title_color_inactive = "#00000060"
+
+# macOS traffic lights
+close_color = "#fc615d"
+close_hover = "#fc615d"
+minimize_color = "#fdbe40"
+minimize_hover = "#fdbe40"
+maximize_color = "#34c748"
+maximize_hover = "#34c748"
+
+buttons_left = true  # macOS has buttons on left
+EOF
+
+# Windows 11 style preset
+cat > "$CONFIG_DIR/presets/windows11.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 32
+button_size = 46
+button_spacing = 0
+corner_radius = 8
+
+bg_color = "#f3f3f3"
+bg_color_inactive = "#fafafa"
+
+font = "Segoe UI Variable"
+font_size = 12
+font_weight = 600
+
+title_color = "#000000e6"
+title_color_inactive = "#00000066"
+
+close_color = "#00000000"
+close_hover = "#c42b1c"
+maximize_color = "#00000000"
+maximize_hover = "#0000000d"
+minimize_color = "#00000000"
+minimize_hover = "#0000000d"
+
+buttons_left = false
+EOF
+
+# Minimal/Hacker preset
+cat > "$CONFIG_DIR/presets/minimal.toml" << 'EOF'
+[decoration]
+enabled = true
+height = 28
+button_size = 18
+button_spacing = 6
+corner_radius = 0
+
+bg_color = "#1a1b26"
+bg_color_inactive = "#16161e"
+
+font = "JetBrains Mono"
+font_size = 10
+font_weight = 500
+
+title_color = "#a9b1d6"
+title_color_inactive = "#565f89"
+
+close_color = "#f7768e"
+close_hover = "#f7768e20"
+maximize_color = "#9ece6a"
+maximize_hover = "#9ece6a20"
+minimize_color = "#e0af68"
+minimize_hover = "#e0af6820"
+
+buttons_left = false
 EOF
 
 # Create animation.toml
@@ -292,4 +420,66 @@ floating = true
 
 [[rules]]
 app_id = "pavucontrol"
-floating =
+floating = true
+EOF
+
+# Create a README
+cat > "$CONFIG_DIR/README.md" << 'EOF'
+# StarView Configuration
+
+## Titlebar Customization
+
+### Using Custom Icons
+1. Place 16x16 PNG icons in `~/.config/starview/icons/`
+2. Edit `decoration.toml` and uncomment the icon paths:
+```toml
+icon_close = "~/.config/starview/icons/close.png"
+icon_maximize = "~/.config/starview/icons/maximize.png"
+icon_minimize = "~/.config/starview/icons/minimize.png"
+```
+
+### Using Custom Background Images
+1. Place titlebar background images in `~/.config/starview/images/`
+2. Edit `decoration.toml`:
+```toml
+bg_image = "~/.config/starview/images/titlebar-gradient.png"
+bg_image_tile = true  # or false to stretch
+```
+
+### Font Customization
+```toml
+font = "JetBrains Mono"
+font_size = 13
+font_weight = 600  # 400=normal, 700=bold
+font_italic = false
+```
+
+### Quick Presets
+To use a preset, copy it to your decoration.toml:
+```bash
+cp presets/macos.toml decoration.toml
+# or
+cp presets/windows11.toml decoration.toml
+# or
+cp presets/minimal.toml decoration.toml
+```
+
+Then run: `Alt+Shift+r` to reload config
+EOF
+
+echo ""
+echo "✓ Configuration created at $CONFIG_DIR"
+echo ""
+echo "Next steps:"
+echo "1. Download icon/image assets:"
+echo "   bash download_assets.sh"
+echo ""
+echo "2. Edit decoration.toml to customize:"
+echo "   - Uncomment icon_* lines to use custom icons"
+echo "   - Uncomment bg_image to use custom background"
+echo "   - Adjust font, colors, sizes"
+echo ""
+echo "3. Try a preset:"
+echo "   cp $CONFIG_DIR/presets/macos.toml $CONFIG_DIR/decoration.toml"
+echo ""
+echo "4. Start StarView and press Alt+Shift+r to reload config"

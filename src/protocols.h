@@ -6,7 +6,7 @@
 #include <wayland-server-core.h>
 
 struct server;
-
+struct window;
 /* Foreign toplevel management (waybar window list) */
 int foreign_toplevel_init(struct server *server);
 void foreign_toplevel_finish(struct server *server);
