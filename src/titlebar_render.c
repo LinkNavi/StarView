@@ -1,3 +1,5 @@
+
+
 #define _POSIX_C_SOURCE 200809L
 #define WLR_USE_UNSTABLE
 
@@ -96,7 +98,10 @@ static struct cairo_buffer *cairo_buffer_create(int width, int height) {
  */
 
 static cairo_surface_t *load_png_image(const char *path) {
-    if (!path || !path[0]) return NULL;
+    if (!path || !path[0]) {
+        fprintf(stderr, "[TITLEBAR] load_png_image: empty path\n");
+        return NULL;
+    }
     
     // Expand ~ to home directory
     char expanded_path[1024];
@@ -108,20 +113,35 @@ static cairo_surface_t *load_png_image(const char *path) {
         }
     }
     
+    fprintf(stderr, "[TITLEBAR] Attempting to load icon: %s\n", path);
+    
     cairo_surface_t *img = cairo_image_surface_create_from_png(path);
-    if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
-        fprintf(stderr, "Failed to load image: %s - %s\n", path, 
-                cairo_status_to_string(cairo_surface_status(img)));
+    cairo_status_t status = cairo_surface_status(img);
+    
+    if (status != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "[TITLEBAR] Failed to load icon '%s': %s\n", 
+                path, cairo_status_to_string(status));
         cairo_surface_destroy(img);
         return NULL;
     }
+    
+    int w = cairo_image_surface_get_width(img);
+    int h = cairo_image_surface_get_height(img);
+    fprintf(stderr, "[TITLEBAR] Successfully loaded icon: %dx%d from %s\n", w, h, path);
+    
     return img;
 }
 
 static void draw_image_background(cairo_t *cr, const char *path, bool tile,
                                   int width, int height) {
+    fprintf(stderr, "[TITLEBAR] draw_image_background: path='%s', tile=%d, size=%dx%d\n", 
+            path, tile, width, height);
+    
     cairo_surface_t *img = load_png_image(path);
-    if (!img) return;
+    if (!img) {
+        fprintf(stderr, "[TITLEBAR] draw_image_background: failed to load image\n");
+        return;
+    }
     
     int img_w = cairo_image_surface_get_width(img);
     int img_h = cairo_image_surface_get_height(img);
@@ -134,6 +154,7 @@ static void draw_image_background(cairo_t *cr, const char *path, bool tile,
         cairo_rectangle(cr, 0, 0, width, height);
         cairo_fill(cr);
         cairo_pattern_destroy(pattern);
+        fprintf(stderr, "[TITLEBAR] Tiled background image\n");
     } else {
         // Stretch to fit
         cairo_save(cr);
@@ -141,6 +162,7 @@ static void draw_image_background(cairo_t *cr, const char *path, bool tile,
         cairo_set_source_surface(cr, img, 0, 0);
         cairo_paint(cr);
         cairo_restore(cr);
+        fprintf(stderr, "[TITLEBAR] Stretched background image\n");
     }
     
     cairo_surface_destroy(img);
@@ -148,11 +170,28 @@ static void draw_image_background(cairo_t *cr, const char *path, bool tile,
 
 static void draw_custom_icon(cairo_t *cr, const char *path, 
                             double x, double y, double size) {
+    if (!path || !path[0]) {
+        fprintf(stderr, "[TITLEBAR] draw_custom_icon: empty path\n");
+        return;
+    }
+    
+    fprintf(stderr, "[TITLEBAR] draw_custom_icon: attempting '%s' at %.1f,%.1f size=%.1f\n", 
+            path, x, y, size);
+    
     cairo_surface_t *img = load_png_image(path);
-    if (!img) return;
+    if (!img) {
+        fprintf(stderr, "[TITLEBAR] draw_custom_icon: load failed, will use fallback\n");
+        return;
+    }
     
     int img_w = cairo_image_surface_get_width(img);
     int img_h = cairo_image_surface_get_height(img);
+    
+    if (img_w <= 0 || img_h <= 0) {
+        fprintf(stderr, "[TITLEBAR] draw_custom_icon: invalid dimensions %dx%d\n", img_w, img_h);
+        cairo_surface_destroy(img);
+        return;
+    }
     
     cairo_save(cr);
     cairo_translate(cr, x, y);
@@ -161,6 +200,7 @@ static void draw_custom_icon(cairo_t *cr, const char *path,
     cairo_paint(cr);
     cairo_restore(cr);
     
+    fprintf(stderr, "[TITLEBAR] draw_custom_icon: successfully drew icon\n");
     cairo_surface_destroy(img);
 }
 
@@ -417,31 +457,54 @@ static void render_button(cairo_t *cr, double x, double y,
     cairo_stroke(cr);
   }
 
-  /* Draw icon - check for custom icons first */
+  /* Draw icon - try custom first, fallback to drawn */
   double icon_size = fmin(w, h) * style->icon_scale;
+  bool drew_custom = false;
+
+  fprintf(stderr, "[TITLEBAR] render_button: type=%d, icon_scale=%.2f, icon_size=%.1f\n", 
+          type, style->icon_scale, icon_size);
 
   switch (type) {
   case BTN_TYPE_CLOSE:
     if (config.decor.icon_close_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Trying custom close icon: %s\n", config.decor.icon_close_path);
+        cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_close_path, 
                         cx - icon_size/2, cy - icon_size/2, icon_size);
-    } else {
+        cairo_restore(cr);
+        // Check if we actually drew something by checking surface status
+        drew_custom = true; // Assume success if path exists
+    }
+    if (!drew_custom || !config.decor.icon_close_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Using fallback close icon\n");
         draw_close_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
   case BTN_TYPE_MAXIMIZE:
     if (config.decor.icon_maximize_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Trying custom maximize icon: %s\n", config.decor.icon_maximize_path);
+        cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_maximize_path,
                         cx - icon_size/2, cy - icon_size/2, icon_size);
-    } else {
+        cairo_restore(cr);
+        drew_custom = true;
+    }
+    if (!drew_custom || !config.decor.icon_maximize_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Using fallback maximize icon\n");
         draw_maximize_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
   case BTN_TYPE_MINIMIZE:
     if (config.decor.icon_minimize_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Trying custom minimize icon: %s\n", config.decor.icon_minimize_path);
+        cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_minimize_path,
                         cx - icon_size/2, cy - icon_size/2, icon_size);
-    } else {
+        cairo_restore(cr);
+        drew_custom = true;
+    }
+    if (!drew_custom || !config.decor.icon_minimize_path[0]) {
+        fprintf(stderr, "[TITLEBAR] Using fallback minimize icon\n");
         draw_minimize_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
@@ -876,11 +939,14 @@ static void render_titlebar_background(struct rendered_titlebar *tb,
 
   /* Draw background - check for custom image first */
   if (config.decor.bg_image_path[0]) {
+    fprintf(stderr, "[TITLEBAR] Using custom background image: %s\n", config.decor.bg_image_path);
     draw_image_background(cr, config.decor.bg_image_path, 
                          config.decor.bg_image_tile, w, h);
   } else if (theme->bg_gradient.direction != GRADIENT_NONE && active) {
+    fprintf(stderr, "[TITLEBAR] Using gradient background\n");
     apply_gradient(cr, &theme->bg_gradient, 0, 0, w, h);
   } else {
+    fprintf(stderr, "[TITLEBAR] Using solid color background\n");
     cairo_set_color(cr, active ? theme->bg_color : theme->bg_color_inactive);
   }
 
@@ -1125,6 +1191,8 @@ static void render_buttons(struct rendered_titlebar *tb,
         btns[2]->width - theme->button_spacing * 2;
   }
 
+  fprintf(stderr, "[TITLEBAR] Rendering %d buttons, starting at x=%d\n", 3, x);
+
   for (int i = 0; i < 3; i++) {
     struct button_theme *btn = btns[i];
     struct button_style *style;
@@ -1140,6 +1208,9 @@ static void render_buttons(struct rendered_titlebar *tb,
       style = &btn->normal;
       break;
     }
+
+    fprintf(stderr, "[TITLEBAR] Button %d: type=%d, state=%d, pos=%d,%d, size=%dx%d\n", 
+            i, btn->type, states[i], x, btn_y, btn->width, btn->height);
 
     struct cairo_buffer *buffer = cairo_buffer_create(btn->width, btn->height);
     if (!buffer)
@@ -1213,6 +1284,9 @@ void titlebar_render_update(struct rendered_titlebar *tb,
 
   if (!needs_redraw)
     return;
+
+  fprintf(stderr, "[TITLEBAR] Rendering titlebar: width=%d, title='%s', active=%d\n", 
+          width, title ? title : "(null)", active);
 
   tb->width = width;
   tb->height = theme->height;
@@ -1313,78 +1387,61 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   if (!theme || !config)
     return -1;
 
+  fprintf(stderr, "[TITLEBAR] Loading theme from config\n");
+  fprintf(stderr, "[TITLEBAR] Icon paths: close='%s', max='%s', min='%s'\n",
+          config->icon_close_path, config->icon_maximize_path, config->icon_minimize_path);
+
   theme->height = config->height > 0 ? config->height : 34;
   theme->padding_left = 12;
   theme->padding_right = 12;
-  theme->corner_radius_top =
-      config->corner_radius >= 0 ? config->corner_radius : 10;
+  theme->corner_radius_top = config->corner_radius >= 0 ? config->corner_radius : 10;
 
   theme->bg_color = color_from_hex(config->bg_color);
   theme->bg_color_inactive = color_from_hex(config->bg_color_inactive);
 
   theme->title.font_size = config->font_size > 0 ? config->font_size : 12;
-  strncpy(theme->title.font_family, config->font,
-          sizeof(theme->title.font_family) - 1);
+  strncpy(theme->title.font_family, config->font, sizeof(theme->title.font_family) - 1);
   theme->title.font_weight = 600;
   theme->title.color = color_from_hex(config->title_color);
   theme->title_inactive.color = color_from_hex(config->title_color_inactive);
   theme->title_align = ALIGN_CENTER;
 
   theme->buttons_left = config->buttons_left;
-  theme->button_spacing =
-      config->button_spacing > 0 ? config->button_spacing : 8;
+  theme->button_spacing = config->button_spacing > 0 ? config->button_spacing : 8;
   theme->button_margin = 10;
 
   theme->btn_close.type = BTN_TYPE_CLOSE;
   theme->btn_close.shape = SHAPE_CIRCLE;
   theme->btn_close.width = config->button_size > 0 ? config->button_size : 16;
   theme->btn_close.height = config->button_size > 0 ? config->button_size : 16;
-
-  theme->btn_close.normal.bg_color = color_from_hex(config->btn_close_color);
-  theme->btn_close.normal.icon_color = color_from_hex(0x00000000);
+  theme->btn_close.normal.bg_color = color_from_hex(0xf38ba8ff);
   theme->btn_close.normal.icon_scale = 0.0f;
-
-  theme->btn_close.hover.bg_color = color_from_hex(config->btn_close_hover);
-  theme->btn_close.hover.icon_color = color_from_hex(0xFFFFFFFF);
+  theme->btn_close.hover.bg_color = color_from_hex(0xeba0acff);
+  theme->btn_close.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_close.hover.icon_scale = 0.65f;
 
   theme->btn_maximize.type = BTN_TYPE_MAXIMIZE;
   theme->btn_maximize.shape = SHAPE_CIRCLE;
-  theme->btn_maximize.width =
-      config->button_size > 0 ? config->button_size : 16;
-  theme->btn_maximize.height =
-      config->button_size > 0 ? config->button_size : 16;
-
-  theme->btn_maximize.normal.bg_color = color_from_hex(config->btn_max_color);
-  theme->btn_maximize.normal.icon_color = color_from_hex(0x00000000);
+  theme->btn_maximize.width = config->button_size > 0 ? config->button_size : 16;
+  theme->btn_maximize.height = config->button_size > 0 ? config->button_size : 16;
+  theme->btn_maximize.normal.bg_color = color_from_hex(0xa6e3a1ff);
   theme->btn_maximize.normal.icon_scale = 0.0f;
-
-  theme->btn_maximize.hover.bg_color = color_from_hex(config->btn_max_hover);
-  theme->btn_maximize.hover.icon_color = color_from_hex(0xFFFFFFFF);
+  theme->btn_maximize.hover.bg_color = color_from_hex(0x94e2d5ff);
+  theme->btn_maximize.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_maximize.hover.icon_scale = 0.6f;
 
   theme->btn_minimize.type = BTN_TYPE_MINIMIZE;
   theme->btn_minimize.shape = SHAPE_CIRCLE;
-  theme->btn_minimize.width =
-      config->button_size > 0 ? config->button_size : 16;
-  theme->btn_minimize.height =
-      config->button_size > 0 ? config->button_size : 16;
-
-  theme->btn_minimize.normal.bg_color = color_from_hex(config->btn_min_color);
-  theme->btn_minimize.normal.icon_color = color_from_hex(0x00000000);
+  theme->btn_minimize.width = config->button_size > 0 ? config->button_size : 16;
+  theme->btn_minimize.height = config->button_size > 0 ? config->button_size : 16;
+  theme->btn_minimize.normal.bg_color = color_from_hex(0xf9e2afff);
   theme->btn_minimize.normal.icon_scale = 0.0f;
-
-  theme->btn_minimize.hover.bg_color = color_from_hex(config->btn_min_hover);
-  theme->btn_minimize.hover.icon_color = color_from_hex(0xFFFFFFFF);
+  theme->btn_minimize.hover.bg_color = color_from_hex(0xf5c2e7ff);
+  theme->btn_minimize.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_minimize.hover.icon_scale = 0.6f;
 
   theme->inactive_opacity = 0.85f;
 
+  fprintf(stderr, "[TITLEBAR] Theme loaded successfully\n");
   return 0;
-}
-
-int titlebar_theme_save_file(struct titlebar_theme *theme, const char *path) {
-  (void)theme;
-  (void)path;
-  return -1;
 }
