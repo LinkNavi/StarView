@@ -99,7 +99,6 @@ static struct cairo_buffer *cairo_buffer_create(int width, int height) {
 
 static cairo_surface_t *load_png_image(const char *path) {
     if (!path || !path[0]) {
-        fprintf(stderr, "[TITLEBAR] load_png_image: empty path\n");
         return NULL;
     }
     
@@ -113,23 +112,42 @@ static cairo_surface_t *load_png_image(const char *path) {
         }
     }
     
-    fprintf(stderr, "[TITLEBAR] Attempting to load icon: %s\n", path);
+    fprintf(stderr, "[TITLEBAR] Loading PNG: %s\n", path);
     
     cairo_surface_t *img = cairo_image_surface_create_from_png(path);
     cairo_status_t status = cairo_surface_status(img);
     
     if (status != CAIRO_STATUS_SUCCESS) {
-        fprintf(stderr, "[TITLEBAR] Failed to load icon '%s': %s\n", 
-                path, cairo_status_to_string(status));
+        fprintf(stderr, "[TITLEBAR] PNG load failed: %s\n", cairo_status_to_string(status));
         cairo_surface_destroy(img);
         return NULL;
     }
     
     int w = cairo_image_surface_get_width(img);
     int h = cairo_image_surface_get_height(img);
-    fprintf(stderr, "[TITLEBAR] Successfully loaded icon: %dx%d from %s\n", w, h, path);
+    fprintf(stderr, "[TITLEBAR] Loaded: %dx%d\n", w, h);
     
     return img;
+}
+
+static void draw_custom_icon(cairo_t *cr, const char *path, 
+                            double x, double y, double size) {
+    if (!path || !path[0]) return;
+    
+    cairo_surface_t *img = load_png_image(path);
+    if (!img) return;
+    
+    int img_w = cairo_image_surface_get_width(img);
+    int img_h = cairo_image_surface_get_height(img);
+    
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, size / img_w, size / img_h);
+    cairo_set_source_surface(cr, img, 0, 0);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    
+    cairo_surface_destroy(img);
 }
 
 static void draw_image_background(cairo_t *cr, const char *path, bool tile,
@@ -165,42 +183,6 @@ static void draw_image_background(cairo_t *cr, const char *path, bool tile,
         fprintf(stderr, "[TITLEBAR] Stretched background image\n");
     }
     
-    cairo_surface_destroy(img);
-}
-
-static void draw_custom_icon(cairo_t *cr, const char *path, 
-                            double x, double y, double size) {
-    if (!path || !path[0]) {
-        fprintf(stderr, "[TITLEBAR] draw_custom_icon: empty path\n");
-        return;
-    }
-    
-    fprintf(stderr, "[TITLEBAR] draw_custom_icon: attempting '%s' at %.1f,%.1f size=%.1f\n", 
-            path, x, y, size);
-    
-    cairo_surface_t *img = load_png_image(path);
-    if (!img) {
-        fprintf(stderr, "[TITLEBAR] draw_custom_icon: load failed, will use fallback\n");
-        return;
-    }
-    
-    int img_w = cairo_image_surface_get_width(img);
-    int img_h = cairo_image_surface_get_height(img);
-    
-    if (img_w <= 0 || img_h <= 0) {
-        fprintf(stderr, "[TITLEBAR] draw_custom_icon: invalid dimensions %dx%d\n", img_w, img_h);
-        cairo_surface_destroy(img);
-        return;
-    }
-    
-    cairo_save(cr);
-    cairo_translate(cr, x, y);
-    cairo_scale(cr, size / img_w, size / img_h);
-    cairo_set_source_surface(cr, img, 0, 0);
-    cairo_paint(cr);
-    cairo_restore(cr);
-    
-    fprintf(stderr, "[TITLEBAR] draw_custom_icon: successfully drew icon\n");
     cairo_surface_destroy(img);
 }
 
@@ -461,53 +443,46 @@ static void render_button(cairo_t *cr, double x, double y,
   double icon_size = fmin(w, h) * style->icon_scale;
   bool drew_custom = false;
 
-  fprintf(stderr, "[TITLEBAR] render_button: type=%d, icon_scale=%.2f, icon_size=%.1f\n", 
-          type, style->icon_scale, icon_size);
-
   switch (type) {
   case BTN_TYPE_CLOSE:
     if (config.decor.icon_close_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Trying custom close icon: %s\n", config.decor.icon_close_path);
         cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_close_path, 
                         cx - icon_size/2, cy - icon_size/2, icon_size);
         cairo_restore(cr);
-        // Check if we actually drew something by checking surface status
-        drew_custom = true; // Assume success if path exists
+        drew_custom = true;
     }
-    if (!drew_custom || !config.decor.icon_close_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Using fallback close icon\n");
+    if (!drew_custom) {
         draw_close_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
+    
   case BTN_TYPE_MAXIMIZE:
     if (config.decor.icon_maximize_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Trying custom maximize icon: %s\n", config.decor.icon_maximize_path);
         cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_maximize_path,
                         cx - icon_size/2, cy - icon_size/2, icon_size);
         cairo_restore(cr);
         drew_custom = true;
     }
-    if (!drew_custom || !config.decor.icon_maximize_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Using fallback maximize icon\n");
+    if (!drew_custom) {
         draw_maximize_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
+    
   case BTN_TYPE_MINIMIZE:
     if (config.decor.icon_minimize_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Trying custom minimize icon: %s\n", config.decor.icon_minimize_path);
         cairo_save(cr);
         draw_custom_icon(cr, config.decor.icon_minimize_path,
                         cx - icon_size/2, cy - icon_size/2, icon_size);
         cairo_restore(cr);
         drew_custom = true;
     }
-    if (!drew_custom || !config.decor.icon_minimize_path[0]) {
-        fprintf(stderr, "[TITLEBAR] Using fallback minimize icon\n");
+    if (!drew_custom) {
         draw_minimize_icon(cr, cx, cy, icon_size, style->icon_color);
     }
     break;
+    
   default:
     break;
   }
@@ -1410,12 +1385,13 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->button_spacing = config->button_spacing > 0 ? config->button_spacing : 8;
   theme->button_margin = 10;
 
-  theme->btn_close.type = BTN_TYPE_CLOSE;
+ theme->btn_close.type = BTN_TYPE_CLOSE;
   theme->btn_close.shape = SHAPE_CIRCLE;
   theme->btn_close.width = config->button_size > 0 ? config->button_size : 16;
   theme->btn_close.height = config->button_size > 0 ? config->button_size : 16;
   theme->btn_close.normal.bg_color = color_from_hex(0xf38ba8ff);
-  theme->btn_close.normal.icon_scale = 0.0f;
+  theme->btn_close.normal.icon_scale = 0.65f;  // ← CHANGE THIS FROM 0.0f
+  theme->btn_close.normal.icon_color = color_from_hex(0x1e1e2eff); // Add a color
   theme->btn_close.hover.bg_color = color_from_hex(0xeba0acff);
   theme->btn_close.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_close.hover.icon_scale = 0.65f;
@@ -1425,7 +1401,8 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->btn_maximize.width = config->button_size > 0 ? config->button_size : 16;
   theme->btn_maximize.height = config->button_size > 0 ? config->button_size : 16;
   theme->btn_maximize.normal.bg_color = color_from_hex(0xa6e3a1ff);
-  theme->btn_maximize.normal.icon_scale = 0.0f;
+  theme->btn_maximize.normal.icon_scale = 0.6f;  // ← CHANGE THIS FROM 0.0f
+  theme->btn_maximize.normal.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_maximize.hover.bg_color = color_from_hex(0x94e2d5ff);
   theme->btn_maximize.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_maximize.hover.icon_scale = 0.6f;
@@ -1435,7 +1412,8 @@ int titlebar_theme_load_from_config(struct titlebar_theme *theme,
   theme->btn_minimize.width = config->button_size > 0 ? config->button_size : 16;
   theme->btn_minimize.height = config->button_size > 0 ? config->button_size : 16;
   theme->btn_minimize.normal.bg_color = color_from_hex(0xf9e2afff);
-  theme->btn_minimize.normal.icon_scale = 0.0f;
+  theme->btn_minimize.normal.icon_scale = 0.6f;  // ← CHANGE THIS FROM 0.0f
+  theme->btn_minimize.normal.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_minimize.hover.bg_color = color_from_hex(0xf5c2e7ff);
   theme->btn_minimize.hover.icon_color = color_from_hex(0x1e1e2eff);
   theme->btn_minimize.hover.icon_scale = 0.6f;

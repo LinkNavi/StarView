@@ -133,14 +133,16 @@ button_size = 16
 button_spacing = 8
 corner_radius = 10
 
+
+
 # ============================================================================
 # BACKGROUND CUSTOMIZATION
 # ============================================================================
 # Custom titlebar background image (optional)
 # If set, this will be used instead of solid colors
 # Leave empty or comment out to use colors below
-# bg_image = "~/.config/starview/images/titlebar-gradient.png"
-# bg_image_tile = true  # true = tile, false = stretch
+ bg_image = "~/.config/starview/images/titlebar.png"
+ bg_image_tile = false  # true = tile, false = stretch
 
 # Fallback solid colors (used if no bg_image)
 bg_color = "#1e1e2e"
@@ -165,9 +167,9 @@ title_color_inactive = "#6c7086"
 # Leave empty or comment out to use default drawn icons
 
 # Example with custom icons:
-# icon_close = "~/.config/starview/icons/close.png"
-# icon_maximize = "~/.config/starview/icons/maximize.png"
-# icon_minimize = "~/.config/starview/icons/minimize.png"
+ icon_close = "~/.config/starview/icons/close.png"
+ icon_maximize = "~/.config/starview/icons/maximize.png"
+ icon_minimize = "~/.config/starview/icons/minimize.png"
 
 # Fallback button colors (used if no custom icons)
 close_color = "#f38ba8"
