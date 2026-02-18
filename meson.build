@@ -64,6 +64,7 @@ src = [
   'src/window.c',
   'src/protocols.c',
   'src/background.c',
+  'src/config_live.c',
   'src/anim.c',
   'src/rules.c',
   'src/util.c',

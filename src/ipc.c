@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "core.h"
 #include "config.h"
+#include "config_live.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -226,7 +227,7 @@ static void ipc_handle_command(struct ipc_client *client, const char *payload) {
         }
     } else if (strcmp(payload, "reload") == 0) {
         config_reload();
-        arrange_windows(client->server);
+        config_apply_live(client->server);
     } else if (strcmp(payload, "exit") == 0) {
         wl_display_terminate(client->server->display);
     }
