@@ -5,6 +5,7 @@
 #define WLR_USE_UNSTABLE
 
 #include "config.h"
+#include "window.h"
 
 #include <wayland-server-core.h>
 #include <wlr/backend.h>
@@ -121,7 +122,7 @@ struct layer_surface {
 
 struct cursor_state {
   struct toplevel *toplevel;
-struct xwayland_surface *xwayland;  // ADD THIS
+  struct xwayland_surface *xwayland;
   double grab_x, grab_y;
   struct wlr_box grab_box;
   enum cursor_mode mode;
@@ -138,6 +139,18 @@ enum preselect_dir {
   PRESELECT_DOWN,
 };
 
+/* Forward declarations for protocol types */
+struct wlr_foreign_toplevel_manager_v1;
+struct wlr_pointer_constraints_v1;
+struct wlr_relative_pointer_manager_v1;
+struct wlr_keyboard_shortcuts_inhibit_manager_v1;
+struct wlr_fractional_scale_manager_v1;
+struct wlr_xdg_activation_v1;
+struct wlr_session_lock_manager_v1;
+struct wlr_session_lock_v1;
+struct wlr_presentation;
+struct wlr_viewporter;
+
 struct server {
   struct wl_display *display;
   struct wlr_backend *backend;
@@ -151,6 +164,8 @@ struct server {
   struct wlr_cursor *cursor;
   struct wlr_xcursor_manager *cursor_mgr;
   enum preselect_dir preselect;
+
+  /* Gestures */
   struct wl_listener gesture_swipe_begin;
   struct wl_listener gesture_swipe_update;
   struct wl_listener gesture_swipe_end;
@@ -159,42 +174,85 @@ struct server {
   struct wl_listener gesture_pinch_end;
   struct wl_listener gesture_hold_begin;
   struct wl_listener gesture_hold_end;
+
+  /* XWayland */
   struct wlr_xwayland *xwayland;
   struct wl_listener new_xwayland_surface;
   struct wl_listener xwayland_ready;
   struct wl_list xwayland_surfaces;
+
+  /* Layer shell */
   struct wlr_layer_shell_v1 *layer_shell;
   struct wl_listener new_layer_surface;
+
+  /* Compositor */
   struct wlr_compositor *compositor;
   struct wlr_xdg_decoration_manager_v1 *xdg_decoration_mgr;
   struct wl_listener new_xdg_decoration;
   
-  // Clipboard
+  /* Clipboard */
   struct wlr_primary_selection_v1_device_manager *primary_selection;
   struct wlr_data_control_manager_v1 *data_control;
   
-  // Idle and locking
+  /* Idle and locking (legacy) */
   struct wlr_idle_notifier_v1 *idle_notifier;
   struct wlr_idle_inhibit_v1 *idle_inhibit;
   struct wlr_session_lock_manager_v1 *session_lock_mgr;
   struct wl_listener new_session_lock;
   struct wlr_session_lock_v1 *locked;
   
-  // Multi-monitor
+  /* Multi-monitor */
   struct wlr_output_manager_v1 *output_manager;
   struct wlr_output_power_manager_v1 *output_power_manager;
   struct wl_listener output_manager_apply;
   struct wl_listener output_manager_test;
   struct wl_listener output_power_mgr_set_mode;
   
-  // IME
+  /* IME */
   struct wlr_text_input_manager_v3 *text_input;
   struct wlr_input_method_manager_v2 *input_method_mgr;
   struct wl_listener new_text_input;
   struct wl_listener new_input_method;
   struct wlr_input_method_v2 *input_method;
   struct wlr_text_input_v3 *active_text_input;
-  
+
+  /* === NEW PROTOCOLS === */
+
+  /* Foreign toplevel management (waybar) */
+  struct wlr_foreign_toplevel_manager_v1 *foreign_toplevel_mgr;
+
+  /* Pointer constraints + relative pointer (games) */
+  struct wlr_pointer_constraints_v1 *pointer_constraints;
+  struct wlr_relative_pointer_manager_v1 *relative_pointer_mgr;
+  struct wl_listener new_pointer_constraint;
+
+  /* Keyboard shortcuts inhibit (games/VMs) */
+  struct wlr_keyboard_shortcuts_inhibit_manager_v1 *keyboard_shortcuts_inhibit;
+  struct wl_listener new_keyboard_shortcuts_inhibit;
+
+  /* Fractional scale (HiDPI) */
+  struct wlr_fractional_scale_manager_v1 *fractional_scale_mgr;
+
+  /* XDG activation (notification focus) */
+  struct wlr_xdg_activation_v1 *xdg_activation;
+  struct wl_listener xdg_activation_request;
+
+  /* Session lock v2 (ext-session-lock, full impl) */
+  struct wlr_session_lock_manager_v1 *session_lock_mgr_v2;
+  struct wl_listener new_session_lock_v2;
+  struct wlr_session_lock_v1 *locked_session;
+  struct wl_listener session_lock_new_surface;
+  struct wl_listener session_lock_unlock;
+  struct wl_listener session_lock_destroy;
+
+  /* Presentation time (video) */
+  struct wlr_presentation *presentation;
+
+  /* Viewporter (video) */
+  struct wlr_viewporter *viewporter;
+
+  /* === END NEW PROTOCOLS === */
+
   struct wl_listener new_output;
   struct wl_listener new_xdg_toplevel;
   struct wl_listener new_xdg_popup;
@@ -215,7 +273,10 @@ struct server {
   struct wl_list outputs;
   struct wl_list toplevels;
   struct wl_list keyboards;
-  struct wl_list layers; /* list of layer_surface */
+  struct wl_list layers;
+
+  /* Unified window list (NEW - use alongside toplevels during migration) */
+  struct wl_list windows;
 
   enum window_mode mode;
   int current_workspace;
@@ -224,10 +285,11 @@ struct server {
 };
 
 void decor_set_position(struct toplevel *toplevel, int x, int y);
+
 struct output {
   struct wl_list link;
   struct server *server;
-  int current_workspace;  // Each output tracks its own workspace
+  int current_workspace;
   char name[64];
   char description[128];
   struct wlr_output *wlr_output;
@@ -236,7 +298,6 @@ struct output {
   struct wl_listener request_state;
   struct wl_listener destroy;
 
-  /* Background */
   struct wlr_scene_buffer *background;
 };
 
@@ -254,7 +315,6 @@ struct decoration {
   struct wlr_scene_rect *border_right;
   struct wlr_scene_buffer *shadow;
 
-  /* Cairo-rendered titlebar */
   struct rendered_titlebar *rendered_titlebar;
 
   int width;
@@ -262,7 +322,6 @@ struct decoration {
   bool hovered_max;
   bool hovered_min;
 
-  /* Shadow cache */
   int cached_shadow_width;
   int cached_shadow_height;
 };
@@ -305,68 +364,20 @@ struct keyboard {
   struct wl_listener destroy;
   struct wl_listener modifiers;
 };
-// Add to core.h
-enum window_type {
-    WINDOW_XDG,
-    WINDOW_XWAYLAND,
-};
 
-struct window {
-    struct wl_list link;
-    struct server *server;
-    enum window_type type;
-    
-    union {
-        struct toplevel *xdg;
-        struct xwayland_surface *xwayland;
-    };
-    
-    // Common properties
-    bool floating;
-    bool fullscreen;
-    bool minimized;
-    bool maximized;
-    int workspace;
-    struct decoration decor;
-    struct animation anim;
-    float opacity;
-};
-/* core.c */
-void server_new_output(struct wl_listener *listener, void *data);
-void cursor_motion(struct wl_listener *listener, void *data);
-void cursor_motion_abs(struct wl_listener *listener, void *data);
-void cursor_axis(struct wl_listener *listener, void *data);
-void cursor_frame(struct wl_listener *listener, void *data);
-void request_cursor(struct wl_listener *listener, void *data);
-void new_input(struct wl_listener *listener, void *data);
-void server_new_xdg_popup(struct wl_listener *listener, void *data);
-void server_new_xdg_decoration(struct wl_listener *listener, void *data);
-void server_new_layer_surface(struct wl_listener *listener, void *data);
-
-/* New protocol initialization functions */
-int clipboard_init(struct server *server);
-int idle_init(struct server *server);
-int session_lock_init(struct server *server);
-int multimonitor_init(struct server *server);
-int ime_init(struct server *server);
-int xwayland_init(struct server *server);
-void xwayland_finish(struct server *server);
-
-/* XWayland helpers - forward declaration of internal struct */
+/* XWayland surface - kept for backward compat during migration */
 struct xwayland_surface {
   struct wl_list link;
   struct server *server;
   struct wlr_xwayland_surface *xwayland_surface;
   struct wlr_scene_tree *scene_tree;
   
-  // Window state tracking
   bool override_redirect;
   bool is_popup;
   bool is_dialog;
   bool is_splash;
   struct xwayland_surface *parent;
   
-  // Window management properties
   bool floating;
   bool fullscreen;
   bool minimized;
@@ -377,6 +388,9 @@ struct xwayland_surface {
   float opacity;
   int saved_x, saved_y, saved_width, saved_height;
   int pre_max_x, pre_max_y, pre_max_width, pre_max_height;
+  
+  /* Flag: set true during destroy to prevent double-free */
+  bool destroying;
   
   struct wl_listener map;
   struct wl_listener unmap;
@@ -395,6 +409,29 @@ struct xwayland_surface {
   struct wl_listener set_window_type;
   struct wl_listener set_override_redirect;
 };
+
+/* core.c */
+void server_new_output(struct wl_listener *listener, void *data);
+void cursor_motion(struct wl_listener *listener, void *data);
+void cursor_motion_abs(struct wl_listener *listener, void *data);
+void cursor_axis(struct wl_listener *listener, void *data);
+void cursor_frame(struct wl_listener *listener, void *data);
+void request_cursor(struct wl_listener *listener, void *data);
+void new_input(struct wl_listener *listener, void *data);
+void server_new_xdg_popup(struct wl_listener *listener, void *data);
+void server_new_xdg_decoration(struct wl_listener *listener, void *data);
+void server_new_layer_surface(struct wl_listener *listener, void *data);
+
+/* Protocol init (legacy) */
+int clipboard_init(struct server *server);
+int idle_init(struct server *server);
+int session_lock_init(struct server *server);
+int multimonitor_init(struct server *server);
+int ime_init(struct server *server);
+int xwayland_init(struct server *server);
+void xwayland_finish(struct server *server);
+
+/* XWayland helpers */
 struct xwayland_surface *xwayland_surface_at(struct server *server,
                                               double lx, double ly,
                                               struct wlr_surface **surface,
