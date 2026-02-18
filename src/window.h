@@ -12,9 +12,9 @@
 
 /* Forward declarations */
 struct server;
+struct wlr_xwayland_surface;
 struct decoration;
 struct animation;
-struct wlr_xwayland_surface;
 
 /*
  * Unified window type - wraps both XDG and XWayland surfaces
@@ -46,9 +46,9 @@ struct window {
     int pre_max_x, pre_max_y;
     int pre_max_width, pre_max_height;
 
-    /* Decoration & animation */
-    struct decoration decor;
-    struct animation anim;
+    /* Decoration & animation - using pointers to avoid circular dependency */
+    struct decoration *decor;
+    struct animation *anim;
 
     /* Type-specific data */
     union {
