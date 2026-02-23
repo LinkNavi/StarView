@@ -1,0 +1,52 @@
+name: Release StarView
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release'
+        default: '1.0.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            meson ninja pkgconf \
+            wlroots0.18 wayland wayland-protocols \
+            libxkbcommon json-c cairo pango libdrm \
+            xwayland libxcb xcb-util-wm git
+
+      - name: Build
+        run: |
+          meson setup build --prefix=/usr --buildtype=release
+          ninja -C build -j$(nproc)
+
+      - name: Package
+        run: |
+          mkdir -p release/config
+          cp build/compositor release/starview
+          [ -d config ] && cp -r config/. release/config/ || true
+          cd release
+          tar -czf ../starview-${{ inputs.version }}.tar.gz .
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ inputs.version }}
+          name: StarView ${{ inputs.version }}
+          files: starview-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
