@@ -27,7 +27,7 @@ jobs:
             meson ninja pkgconf \
             wlroots0.18 wayland wayland-protocols \
             libxkbcommon json-c cairo pango libdrm \
-            xwayland libxcb xcb-util-wm git
+            xorg-xwayland libxcb xcb-util-wm git
 
       - name: Build
         run: |
