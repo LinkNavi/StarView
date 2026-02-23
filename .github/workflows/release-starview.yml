@@ -24,7 +24,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --noconfirm \
-            meson ninja pkgconf \
+            base-devel meson ninja pkgconf \
             wlroots0.18 wayland wayland-protocols \
             libxkbcommon json-c cairo pango libdrm \
             xorg-xwayland libxcb xcb-util-wm git
